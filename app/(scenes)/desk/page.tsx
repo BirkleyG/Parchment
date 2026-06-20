@@ -58,6 +58,7 @@ export default function DeskPage() {
   const [isAutosaveDirty, setAutosaveDirty] = useState(false);
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [sendModalRecipient, setSendModalRecipient] = useState("");
+  const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
   const [inviteConfirmation, setInviteConfirmation] = useState<{
     inviteLink: string;
     recipientName: string;
@@ -73,6 +74,8 @@ export default function DeskPage() {
   } | null>(null);
   const letterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const measureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mobileLetterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mobileMeasureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const handledComposeParamRef = useRef<string | null>(null);
   const handledOpenNewParamRef = useRef<string | null>(null);
 
@@ -298,9 +301,11 @@ export default function DeskPage() {
     setNotice("Draft removed");
   }
 
-  function getFittedText(text: string) {
-    const textarea = letterTextareaRef.current;
-    const measure = measureTextareaRef.current;
+  function getFittedText(
+    text: string,
+    textarea = letterTextareaRef.current,
+    measure = measureTextareaRef.current,
+  ) {
 
     if (!textarea || !measure) {
       return text;
@@ -334,13 +339,17 @@ export default function DeskPage() {
     return best;
   }
 
-  function handlePageChange(nextValue: string) {
+  function handlePageChange(
+    nextValue: string,
+    textarea = letterTextareaRef.current,
+    measure = measureTextareaRef.current,
+  ) {
     if (!activeDraft) {
       return;
     }
 
     const currentPages = [...(activeDraft.pages ?? [activeDraft.body ?? ""])];
-    const fittedText = getFittedText(nextValue);
+    const fittedText = getFittedText(nextValue, textarea, measure);
 
     if (fittedText === nextValue) {
       currentPages[activePageIndex] = nextValue;
@@ -401,7 +410,97 @@ export default function DeskPage() {
           <span className="desk-ornament-mark" />
         </div>
 
-        <div className="desk-page-grid">
+        <section className="scene-mobile-only desk-mobile-shell">
+          <div className="mobile-scene-card">
+            <div className="mobile-scene-heading-row">
+              <div>
+                <p className="mobile-scene-eyebrow">Desk</p>
+                <h2 className="mobile-scene-title">Write</h2>
+              </div>
+              <button
+                type="button"
+                className="paper-button mobile-scene-button"
+                onClick={() => setNewLetterModalOpen(true)}
+              >
+                New
+              </button>
+            </div>
+
+            <div className="mobile-desk-controls">
+              <label className="mobile-scene-field">
+                <span>Draft</span>
+                {drafts.length > 0 ? (
+                  <select
+                    value={activeDraftId ?? ""}
+                    onChange={(event) => selectDraft(event.target.value)}
+                    className="paper-select"
+                  >
+                    {drafts.map((draft) => (
+                      <option key={draft.id} value={draft.id}>
+                        {draft.title.trim() || "Untitled Letter"}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="mobile-scene-empty">No drafts yet</div>
+                )}
+              </label>
+
+              {activeDraft ? (
+                <label className="mobile-scene-field">
+                  <span>Title</span>
+                  <input
+                    value={activeDraft.title ?? ""}
+                    onChange={(event) => patchDraft({ title: event.target.value })}
+                    className="paper-input"
+                    placeholder="Rename this draft"
+                    aria-label="Draft title"
+                  />
+                </label>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mobile-scene-card mobile-desk-preview">
+            {activeDraft ? (
+              <>
+                <p className="mobile-scene-eyebrow">Current Draft</p>
+                <h3 className="mobile-preview-title">{activeDraft.title.trim() || "Untitled Letter"}</h3>
+                <p className="mobile-preview-copy">
+                  Page {activePageIndex + 1} of {pageCount}
+                </p>
+                <p className="mobile-preview-copy">{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</p>
+                <div className="mobile-action-row mobile-action-row-compact">
+                  <button type="button" className="secondary-button" onClick={() => setBurnModalOpen(true)}>
+                    Burn
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => setMobileEditorOpen(true)}>
+                    Write / Edit
+                  </button>
+                  <button type="button" className="paper-button" onClick={() => setSendModalOpen(true)}>
+                    Send
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="paper-sheet flex h-full min-h-[420px] flex-col items-center justify-center px-8 text-center">
+                <Image src="/design-assets/Letter.png" alt="" width={84} height={84} className="h-20 w-20 object-contain opacity-85" />
+                <h2 className="mt-6 font-display text-5xl text-[var(--color-text-strong)]">
+                  Ready for a new letter
+                </h2>
+                <button
+                  type="button"
+                  className="paper-button mt-8"
+                  onClick={() => setNewLetterModalOpen(true)}
+                >
+                  Create Your First Draft
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="desk-page-grid scene-desktop-only">
           <aside className="desk-left-rail">
             <div className="desk-left-stack">
               <section className="desk-left-intro">
@@ -721,6 +820,108 @@ export default function DeskPage() {
         onClose={() => setBurnModalOpen(false)}
         onConfirm={handleBurnDraft}
       />
+
+      <ParchmentDialog
+        open={mobileEditorOpen && Boolean(activeDraft)}
+        onClose={() => setMobileEditorOpen(false)}
+        className="mobile-page-dialog-overlay"
+        contentClassName="mobile-page-dialog-shell"
+      >
+        {activeDraft ? (
+          <>
+            <div className="mobile-page-dialog-bar">
+              <button type="button" className="secondary-button" onClick={() => setMobileEditorOpen(false)}>
+                Done
+              </button>
+              <span className="mobile-page-dialog-meta">Page {activePageIndex + 1} of {pageCount}</span>
+            </div>
+
+            <div className="mobile-page-stage">
+              <div className="mobile-page-scale-frame">
+                <div className="paper-sheet desk-paper mobile-editor-paper">
+                  <span className="paper-corner paper-corner-tl" />
+                  <span className="paper-corner paper-corner-tr" />
+                  <span className="paper-corner paper-corner-bl" />
+                  <span className="paper-corner paper-corner-br" />
+
+                  <div className="desk-paper-body mobile-editor-body">
+                    <Image
+                      src="/design-assets/Stamp.png"
+                      alt=""
+                      width={200}
+                      height={140}
+                      className="desk-postmark"
+                    />
+
+                    <textarea
+                      ref={mobileLetterTextareaRef}
+                      value={activePageValue}
+                      onChange={(event) => handlePageChange(event.target.value, mobileLetterTextareaRef.current, mobileMeasureTextareaRef.current)}
+                      className="letter-textarea desk-letter-textarea mobile-editor-textarea"
+                      placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
+                      spellCheck={false}
+                    />
+                    <textarea
+                      ref={mobileMeasureTextareaRef}
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      className="letter-textarea desk-letter-textarea desk-measure-textarea mobile-editor-textarea"
+                      readOnly
+                    />
+
+                    <Image
+                      src="/design-assets/Leaf 6.png"
+                      alt=""
+                      width={170}
+                      height={170}
+                      className="desk-paper-sprig"
+                    />
+                  </div>
+
+                  <div className="desk-paper-toolbar mobile-editor-toolbar">
+                    <div className="desk-toolbar-item">
+                      <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+                      <span>{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
+                    </div>
+                    <div className="desk-toolbar-item desk-toolbar-item-centered">
+                      <button
+                        type="button"
+                        className="desk-page-nav-button"
+                        onClick={() => setActivePageIndex((current) => Math.max(0, current - 1))}
+                        disabled={activePageIndex === 0}
+                        aria-label="Previous page"
+                      >
+                        {"<"}
+                      </button>
+                      <select
+                        value={activePageIndex}
+                        onChange={(event) => setActivePageIndex(Number(event.target.value))}
+                        className="desk-page-select"
+                        aria-label="Selected page"
+                      >
+                        {pages.map((_, index) => (
+                          <option key={`${activeDraft.id}-dialog-page-${index + 1}`} value={index}>
+                            {`Page ${index + 1} of ${pageCount}`}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="desk-page-nav-button"
+                        onClick={() => setActivePageIndex((current) => Math.min(pageCount - 1, current + 1))}
+                        disabled={activePageIndex >= pageCount - 1}
+                        aria-label="Next page"
+                      >
+                        {">"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </ParchmentDialog>
 
       <ParchmentDialog
         open={Boolean(pageOverflowState)}

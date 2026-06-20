@@ -210,7 +210,76 @@ export default function MailboxPage() {
           <span className="desk-ornament-mark" />
         </div>
 
-        <div className="mailbox-page-grid">
+        <section className="scene-mobile-only mailbox-mobile-shell">
+          <div className="mobile-scene-card">
+            <div className="mobile-scene-heading-row">
+              <div>
+                <p className="mobile-scene-eyebrow">Mailbox</p>
+                <h2 className="mobile-scene-title">Read</h2>
+              </div>
+              <span className="mobile-scene-count">
+                {displayedLetters.length} letter{displayedLetters.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            <label className="mobile-scene-field">
+              <span>Folder</span>
+              <select
+                value={selectedBinId}
+                onChange={(event) => setSelectedBinId(event.target.value)}
+                className="paper-select"
+              >
+                <option value="all">All Letters</option>
+                {bins.map((bin) => (
+                  <option key={bin.id} value={bin.id}>
+                    {bin.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mailbox-mobile-list">
+              {displayedLetters.length > 0 ? (
+                displayedLetters.map((letter) => {
+                  const isActive = selectedLetterId === letter.id;
+                  return (
+                    <button
+                      key={letter.id}
+                      type="button"
+                      className={`mailbox-mobile-letter ${isActive ? "mailbox-mobile-letter-active" : ""}`}
+                      onClick={() => setSelectedLetterId(letter.id)}
+                    >
+                      <span className="mailbox-mobile-letter-title">{letter.title.trim() || "Untitled Letter"}</span>
+                      <span className="mailbox-mobile-letter-meta">
+                        {letter.fromName || "Unknown sender"} · {formatLetterArrival(letter.deliveredAt ?? letter.createdAt)}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="mobile-scene-empty">No letters in this folder.</div>
+              )}
+            </div>
+          </div>
+
+          {selectedLetter ? (
+            <>
+              <div className="mobile-scene-card mailbox-mobile-preview">
+                <p className="mobile-scene-eyebrow">Selected Letter</p>
+                <h3 className="mailbox-mobile-preview-title">{selectedLetter.title.trim() || "Untitled Letter"}</h3>
+                <p className="mailbox-mobile-preview-meta">From {selectedLetter.fromName || "Unknown sender"}</p>
+                <p className="mailbox-mobile-preview-meta">{formatLetterArrival(selectedLetter.deliveredAt ?? selectedLetter.createdAt)}</p>
+                <div className="mobile-action-row">
+                  <button type="button" className="paper-button" onClick={() => void handleOpenLetter()}>
+                    Open Letter
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </section>
+
+        <div className="mailbox-page-grid scene-desktop-only">
           <aside className="mailbox-left-rail">
             <div className="mailbox-left-stack">
               <section className="mailbox-left-intro">
@@ -618,84 +687,95 @@ export default function MailboxPage() {
       <ParchmentDialog
         open={readModalOpen && Boolean(selectedLetter)}
         onClose={() => setReadModalOpen(false)}
-        className="mailbox-read-overlay"
+        className="mailbox-read-overlay mobile-page-dialog-overlay"
         contentClassName="mailbox-read-shell"
       >
         {selectedLetter ? (
           <>
-            <button type="button" className="mailbox-read-close" onClick={() => setReadModalOpen(false)}>
-              Close
-            </button>
+            <div className="mobile-page-dialog-bar mailbox-read-dialog-bar">
+              <button type="button" className="secondary-button mailbox-read-close" onClick={() => setReadModalOpen(false)}>
+                Close
+              </button>
+              <span className="mobile-page-dialog-meta">Page {readPageIndex + 1} of {selectedLetterPages.length}</span>
+            </div>
 
-            <div className="paper-sheet mailbox-read-paper">
-              <span className="paper-corner paper-corner-tl" />
-              <span className="paper-corner paper-corner-tr" />
-              <span className="paper-corner paper-corner-bl" />
-              <span className="paper-corner paper-corner-br" />
+            <div className="mobile-page-stage">
+              <div className="mobile-page-scale-frame">
+                <div className="paper-sheet mailbox-read-paper">
+                  <span className="paper-corner paper-corner-tl" />
+                  <span className="paper-corner paper-corner-tr" />
+                  <span className="paper-corner paper-corner-bl" />
+                  <span className="paper-corner paper-corner-br" />
 
-              <div className="desk-paper-body mailbox-read-body">
-                <Image
-                  src="/design-assets/Stamp.png"
-                  alt=""
-                  width={200}
-                  height={140}
-                  className="desk-postmark"
-                />
-                <div className="mailbox-read-content">
-                  <h2 className="mailbox-read-title">{selectedLetter.title.trim() || "Untitled Letter"}</h2>
-                  <p className="mailbox-read-subtitle">
-                    From {selectedLetter.fromName || "Unknown sender"} &middot; {formatLetterArrival(selectedLetter.deliveredAt ?? selectedLetter.createdAt)}
-                  </p>
-                  <div className="mailbox-read-text">
-                    {selectedLetterPages[readPageIndex] || "This letter is empty."}
+                  <div className="desk-paper-body mailbox-read-body">
+                    <Image
+                      src="/design-assets/Stamp.png"
+                      alt=""
+                      width={200}
+                      height={140}
+                      className="desk-postmark"
+                    />
+                    <div className="mailbox-read-content">
+                      <h2 className="mailbox-read-title">{selectedLetter.title.trim() || "Untitled Letter"}</h2>
+                      <p className="mailbox-read-subtitle">
+                        From {selectedLetter.fromName || "Unknown sender"} &middot; {formatLetterArrival(selectedLetter.deliveredAt ?? selectedLetter.createdAt)}
+                      </p>
+                      <textarea
+                        value={selectedLetterPages[readPageIndex] || "This letter is empty."}
+                        readOnly
+                        tabIndex={-1}
+                        spellCheck={false}
+                        className="letter-textarea desk-letter-textarea mailbox-read-textarea"
+                      />
+                    </div>
+                    <Image
+                      src="/design-assets/Leaf 6.png"
+                      alt=""
+                      width={170}
+                      height={170}
+                      className="desk-paper-sprig"
+                    />
                   </div>
-                </div>
-                <Image
-                  src="/design-assets/Leaf 6.png"
-                  alt=""
-                  width={170}
-                  height={170}
-                  className="desk-paper-sprig"
-                />
-              </div>
 
-              <div className="desk-paper-toolbar">
-                <div className="desk-toolbar-item">
-                  <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
-                  <span>Read at your own pace</span>
-                </div>
-                <div className="desk-toolbar-item desk-toolbar-item-centered">
-                  <button
-                    type="button"
-                    className="desk-page-nav-button"
-                    onClick={() => setReadPageIndex((current) => Math.max(0, current - 1))}
-                    disabled={readPageIndex === 0}
-                  >
-                    {"<"}
-                  </button>
-                  <select
-                    value={readPageIndex}
-                    onChange={(event) => setReadPageIndex(Number(event.target.value))}
-                    className="desk-page-select"
-                  >
-                    {selectedLetterPages.map((_, index) => (
-                      <option key={`${selectedLetter.id}-read-page-${index + 1}`} value={index}>
-                        {`Page ${index + 1} of ${selectedLetterPages.length}`}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="desk-page-nav-button"
-                    onClick={() => setReadPageIndex((current) => Math.min(selectedLetterPages.length - 1, current + 1))}
-                    disabled={readPageIndex >= selectedLetterPages.length - 1}
-                  >
-                    {">"}
-                  </button>
-                </div>
-                <div className="desk-toolbar-item desk-toolbar-item-end">
-                  <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
-                  <span>{selectedBinLabel}</span>
+                  <div className="desk-paper-toolbar">
+                    <div className="desk-toolbar-item">
+                      <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+                      <span>Read at your own pace</span>
+                    </div>
+                    <div className="desk-toolbar-item desk-toolbar-item-centered">
+                      <button
+                        type="button"
+                        className="desk-page-nav-button"
+                        onClick={() => setReadPageIndex((current) => Math.max(0, current - 1))}
+                        disabled={readPageIndex === 0}
+                      >
+                        {"<"}
+                      </button>
+                      <select
+                        value={readPageIndex}
+                        onChange={(event) => setReadPageIndex(Number(event.target.value))}
+                        className="desk-page-select"
+                      >
+                        {selectedLetterPages.map((_, index) => (
+                          <option key={`${selectedLetter.id}-read-page-${index + 1}`} value={index}>
+                            {`Page ${index + 1} of ${selectedLetterPages.length}`}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="desk-page-nav-button"
+                        onClick={() => setReadPageIndex((current) => Math.min(selectedLetterPages.length - 1, current + 1))}
+                        disabled={readPageIndex >= selectedLetterPages.length - 1}
+                      >
+                        {">"}
+                      </button>
+                    </div>
+                    <div className="desk-toolbar-item desk-toolbar-item-end">
+                      <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+                      <span>{selectedBinLabel}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

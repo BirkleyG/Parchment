@@ -203,6 +203,7 @@ export default function RegistryPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [registryUsers, setRegistryUsers] = useState<RegistryUser[]>([]);
   const [favoriteUserIds, setFavoriteUserIds] = useState<string[]>([]);
+  const [mobileSearchQuery, setMobileSearchQuery] = useState("");
   const [currentSpreadIndex, setCurrentSpreadIndex] = useState(0);
   const [activeSection, setActiveSection] = useState<RegistrySectionId>("settings");
   const [isSaving, setSaving] = useState(false);
@@ -246,6 +247,24 @@ export default function RegistryPage() {
     const favoritesLookup = new Set(favoriteUserIds);
     return registryUsers.filter((user) => favoritesLookup.has(user.id));
   }, [favoriteUserIds, registryUsers]);
+
+  const mobileRegistryUsers = useMemo(() => {
+    return registryUsers.length > 0 ? registryUsers : REFERENCE_A_LISTINGS;
+  }, [registryUsers]);
+
+  const mobileRegistryResults = useMemo(() => {
+    const normalizedQuery = mobileSearchQuery.trim().toLowerCase();
+    const base = mobileRegistryUsers.filter((user) => user.includedInRegistry !== false);
+
+    if (!normalizedQuery) {
+      return base.slice(0, 12);
+    }
+
+    return base.filter((user) => {
+      const haystack = `${user.firstName} ${user.lastName} ${user.mailboxName}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [mobileRegistryUsers, mobileSearchQuery]);
 
   useEffect(() => {
     if (!statusMessage) {
@@ -381,7 +400,61 @@ export default function RegistryPage() {
         <span className="desk-ornament-mark" />
       </div>
 
-      <div className="registry-page-grid">
+      <section className="scene-mobile-only registry-mobile-shell">
+        <div className="mobile-scene-card">
+          <div className="mobile-scene-heading-row">
+            <div>
+              <p className="mobile-scene-eyebrow">Registry</p>
+              <h2 className="mobile-scene-title">Find</h2>
+            </div>
+            <button type="button" className="secondary-button mobile-scene-button" onClick={() => void handleCopyAddress()}>
+              Copy Address
+            </button>
+          </div>
+
+          <div className="mobile-scene-note">
+            <span>Your address</span>
+            <strong>@{settings.mailboxName}</strong>
+          </div>
+
+          <label className="mobile-scene-field">
+            <span>Search people</span>
+            <input
+              value={mobileSearchQuery}
+              onChange={(event) => setMobileSearchQuery(event.target.value)}
+              className="paper-input"
+              placeholder="Search name or mailbox"
+            />
+          </label>
+
+          {statusMessage ? <p className="registry-side-notice registry-side-notice-success">{statusMessage}</p> : null}
+          {errorMessage ? <p className="registry-side-notice registry-side-notice-error">{errorMessage}</p> : null}
+        </div>
+
+        <div className="registry-mobile-results">
+          {mobileRegistryResults.length > 0 ? (
+            mobileRegistryResults.map((user) => (
+              <div key={user.id} className="registry-mobile-result">
+                <div>
+                  <p className="registry-mobile-result-name">{fullName(user)}</p>
+                  <p className="registry-mobile-result-mailbox">@{user.mailboxName}</p>
+                </div>
+                {user.id.startsWith("ref-") ? (
+                  <span className="registry-mobile-result-static">Sample</span>
+                ) : (
+                  <Link href={`/desk?composeTo=${encodeURIComponent(user.mailboxName)}`} className="secondary-button registry-mobile-write">
+                    Write
+                  </Link>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="mobile-scene-empty">No matches found.</div>
+          )}
+        </div>
+      </section>
+
+      <div className="registry-page-grid scene-desktop-only">
         <aside className="registry-left-rail">
           <div className="registry-left-stack">
             <section className="registry-left-intro">
