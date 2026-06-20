@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function validWritingMode(mode) {
+      return mode in ["fountainPen", "typewriter"];
+    }
+
+    match /users/{userId} {
+      // Public read is currently needed for mailbox lookup during sign-up
+      // and for registry browsing.
+      allow read: if true;
+
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.username is string
+        && request.resource.data.mailboxName is string;
+
+      allow update: if isOwner(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.username == resource.data.username
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isOwner(userId);
+
+      match /bins/{binId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /usernames/{username} {
+      // Required for username lookup before sign-in.
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.username == username;
+
+      allow update, delete: if isSignedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
+    match /letters/{letterId} {
+      allow read: if isSignedIn()
+        && (resource.data.fromUid == request.auth.uid
+          || resource.data.toUid == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == "draft"
+        && validWritingMode(request.resource.data.writingMode);
+
+      // Sender can maintain drafts and send them.
+      allow update: if isSignedIn()
+        && resource.data.fromUid == request.auth.uid
+        && request.resource.data.fromUid == resource.data.fromUid
+        && (
+          (resource.data.status == "draft"
+            && request.resource.data.status in ["draft", "inTransit", "sent"])
+          || (resource.data.status == "inTransit"
+            && request.resource.data.status == "inTransit")
+        );
+
+      // Invite claimants can attach pending invite letters to their account.
+      allow update: if isSignedIn()
+        && resource.data.status == "sent"
+        && resource.data.inviteId is string
+        && request.resource.data.fromUid == resource.data.fromUid
+        && request.resource.data.inviteId == resource.data.inviteId
+        && request.resource.data.toUid == request.auth.uid
+        && request.resource.data.status in ["inTransit", "delivered"];
+
+      // Recipient can only perform mailbox-side actions.
+      allow update: if isSignedIn()
+        && resource.data.toUid == request.auth.uid
+        && request.resource.data.fromUid == resource.data.fromUid
+        && request.resource.data.toUid == resource.data.toUid
+        && request.resource.data.status in ["delivered", "opened"]
+        && request.resource.data
+          .diff(resource.data)
+          .affectedKeys()
+          .hasOnly(["status", "openedAt", "updatedAt", "binId"]);
+
+      allow delete: if isSignedIn()
+        && (resource.data.fromUid == request.auth.uid
+          || resource.data.toUid == request.auth.uid);
+    }
+
+    match /invites/{inviteId} {
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && request.resource.data.status == "pending";
+
+      allow update: if isSignedIn()
+        && resource.data.status == "pending"
+        && request.resource.data.status == "claimed"
+        && request.resource.data.claimedByUid == request.auth.uid;
+
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
