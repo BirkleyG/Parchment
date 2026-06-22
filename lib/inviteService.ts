@@ -159,21 +159,13 @@ export async function claimInvite(
       throw new Error("This invitation has already been claimed.");
     }
 
-    const letterRef = doc(firestoreDb!, "letters", invite.letterId);
-    const letterSnapshot = await transaction.get(letterRef);
-    if (!letterSnapshot.exists()) {
-      throw new Error("The invited letter could not be found.");
-    }
-
-    const letterData = letterSnapshot.data() as Record<string, unknown>;
     const now = nowIso();
     const recipient = mapClaimRecipient(profile);
-    const senderDelayDays = Number(letterData.deliveryDelayDays ?? invite.senderDelayDays ?? 1);
+    const senderDelayDays = invite.senderDelayDays || 1;
     const nextDeliveredAt = claimMode === "existingAccount" ? addDaysToIsoDate(now, senderDelayDays) : now;
     const nextStatus = claimMode === "existingAccount" ? "inTransit" : "delivered";
 
     const nextLetterData: Record<string, unknown> = stripUndefined({
-      ...letterData,
       ...recipient,
       status: nextStatus,
       deliveredAt: nextDeliveredAt,
@@ -192,35 +184,29 @@ export async function claimInvite(
       claimedAtServer: serverTimestamp(),
     });
 
-    transaction.update(letterRef, nextLetterData);
+    transaction.update(doc(firestoreDb!, "letters", invite.letterId), nextLetterData);
     transaction.update(inviteRef, nextInvite);
 
     return {
       invite: mapInvite(token, nextInvite),
       letter: {
-        id: letterSnapshot.id,
-        fromName: String(nextLetterData.fromName ?? ""),
-        fromMailboxName: String(nextLetterData.fromMailboxName ?? ""),
+        id: invite.letterId,
+        fromName: invite.senderDisplayName,
+        fromMailboxName: "",
         toName: String(nextLetterData.toName ?? ""),
         toMailboxName: String(nextLetterData.toMailboxName ?? ""),
-        title: String(nextLetterData.title ?? ""),
-        pages: Array.isArray(nextLetterData.pages)
-          ? nextLetterData.pages.map((entry) => String(entry ?? ""))
-          : [String(nextLetterData.body ?? "")],
-        body: typeof nextLetterData.body === "string" ? nextLetterData.body : "",
+        title: invite.title,
+        pages: [""],
+        body: "",
         status: nextStatus,
-        createdAt: String(nextLetterData.createdAt ?? now),
-        sentAt: typeof nextLetterData.sentAt === "string" ? nextLetterData.sentAt : undefined,
+        createdAt: invite.createdAt,
         deliveredAt: typeof nextLetterData.deliveredAt === "string" ? nextLetterData.deliveredAt : undefined,
-        openedAt: typeof nextLetterData.openedAt === "string" ? nextLetterData.openedAt : undefined,
-        binId: typeof nextLetterData.binId === "string" ? nextLetterData.binId : undefined,
-        writingMode: nextLetterData.writingMode === "typewriter" ? "typewriter" : "fountainPen",
-        fromUid: typeof nextLetterData.fromUid === "string" ? nextLetterData.fromUid : undefined,
+        writingMode: "fountainPen",
         toUid: typeof nextLetterData.toUid === "string" ? nextLetterData.toUid : undefined,
         updatedAt: typeof nextLetterData.updatedAt === "string" ? nextLetterData.updatedAt : undefined,
         inviteId: typeof nextLetterData.inviteId === "string" ? nextLetterData.inviteId : undefined,
         inviteStatus: nextLetterData.inviteStatus === "pending" ? "pending" : nextLetterData.inviteStatus === "claimed" ? "claimed" : undefined,
-        recipientMode: nextLetterData.recipientMode === "invite" ? "invite" : "registry",
+        recipientMode: "invite",
         deliveryDelayDays: Number(nextLetterData.deliveryDelayDays ?? senderDelayDays),
         claimMode,
       },
