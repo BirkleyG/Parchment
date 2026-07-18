@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SetupRequired } from "@/components/SetupRequired";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -21,14 +21,13 @@ export function InviteClaimExperience({
   token,
   initialClaimMode,
 }: InviteClaimExperienceProps) {
-  const { firebaseConfigured, loading, profile, user } = useAuth();
+  const { firebaseConfigured, profile, user } = useAuth();
   const [invite, setInvite] = useState<InviteClaim | null>(null);
   const [inviteLoading, setInviteLoading] = useState(true);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [claimStatus, setClaimStatus] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
-  const attemptedAutoClaimRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -92,20 +91,6 @@ export function InviteClaimExperience({
       setIsClaiming(false);
     }
   }
-
-  useEffect(() => {
-    if (!initialClaimMode || !profile || !invite || invite.status === "claimed" || loading) {
-      return;
-    }
-
-    const attemptKey = `${token}:${initialClaimMode}:${profile.uid}`;
-    if (attemptedAutoClaimRef.current === attemptKey) {
-      return;
-    }
-
-    attemptedAutoClaimRef.current = attemptKey;
-    void handleClaim(initialClaimMode);
-  }, [initialClaimMode, invite, loading, profile, token]);
 
   const signInHref = useMemo(
     () => `/sign-in?next=${encodeURIComponent(buildNextHref(token, "existingAccount"))}`,
@@ -178,7 +163,7 @@ export function InviteClaimExperience({
                   type="button"
                   className="paper-button"
                   disabled={isClaiming}
-                  onClick={() => void handleClaim("existingAccount")}
+                  onClick={() => void handleClaim(initialClaimMode ?? "existingAccount")}
                 >
                   {isClaiming ? "Claiming..." : `Receive with @${profile.settings.mailboxName}`}
                 </button>

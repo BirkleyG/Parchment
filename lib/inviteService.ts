@@ -34,7 +34,7 @@ function mapInvite(id: string, data: Record<string, unknown>): InviteClaim {
     senderDisplayName: String(data.senderDisplayName ?? ""),
     recipientName: String(data.recipientName ?? ""),
     title: String(data.title ?? ""),
-    status: data.status === "claimed" ? "claimed" : "pending",
+    status: data.status === "claimed" ? "claimed" : data.status === "replaced" ? "replaced" : "pending",
     createdAt: String(data.createdAt ?? nowIso()),
     claimedAt: typeof data.claimedAt === "string" ? data.claimedAt : undefined,
     claimedByUid: typeof data.claimedByUid === "string" ? data.claimedByUid : undefined,
@@ -78,7 +78,8 @@ export async function getInviteByToken(token: string): Promise<InviteClaim | nul
     return null;
   }
 
-  return mapInvite(snapshot.id, snapshot.data());
+  const invite = mapInvite(snapshot.id, snapshot.data());
+  return invite.status === "replaced" ? null : invite;
 }
 
 export async function sendInviteDraft(
@@ -123,6 +124,7 @@ export async function sendInviteDraft(
     status: "pending",
     createdAt: now,
     senderDelayDays: profile.settings.outgoingDelayDays,
+    senderUid: profile.uid,
   };
 
   await Promise.all([
@@ -137,6 +139,60 @@ export async function sendInviteDraft(
     invite: invitePayload,
     letter: nextLetter,
   };
+}
+
+export async function getInviteStatuses(inviteIds: string[]): Promise<Record<string, InviteClaim>> {
+  assertFirebaseConfigured();
+  const uniqueIds = [...new Set(inviteIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return {};
+
+  const snapshots = await Promise.all(uniqueIds.map((id) => getDoc(doc(firestoreDb!, "invites", id))));
+  return snapshots.filter((snapshot) => snapshot.exists()).reduce<Record<string, InviteClaim>>((result, entry) => {
+    result[entry.id] = mapInvite(entry.id, entry.data());
+    return result;
+  }, {});
+}
+
+export async function rotateInviteLink(profile: AuthProfile, letter: Letter): Promise<InviteClaim> {
+  assertFirebaseConfigured();
+  if (!letter.inviteId || letter.inviteStatus !== "pending") {
+    throw new Error("Only unclaimed invitation links can be replaced.");
+  }
+
+  const nextInviteRef = doc(invitesCollection());
+  const letterRef = doc(firestoreDb!, "letters", letter.id);
+  const oldInviteRef = doc(firestoreDb!, "invites", letter.inviteId);
+  const now = nowIso();
+
+  return runTransaction(firestoreDb!, async (transaction) => {
+    const [letterSnapshot, oldInviteSnapshot] = await Promise.all([
+      transaction.get(letterRef),
+      transaction.get(oldInviteRef),
+    ]);
+    if (!letterSnapshot.exists() || letterSnapshot.data().fromUid !== profile.uid) {
+      throw new Error("This sent letter could not be found.");
+    }
+    if (!oldInviteSnapshot.exists() || oldInviteSnapshot.data().status !== "pending") {
+      throw new Error("This invitation has already been claimed or replaced.");
+    }
+
+    const oldInvite = mapInvite(oldInviteSnapshot.id, oldInviteSnapshot.data());
+    const nextInvite: InviteClaim & { senderUid: string } = {
+      ...oldInvite,
+      id: nextInviteRef.id,
+      status: "pending",
+      createdAt: now,
+      claimedAt: undefined,
+      claimedByUid: undefined,
+      claimMode: undefined,
+      senderUid: profile.uid,
+    };
+
+    transaction.update(oldInviteRef, { status: "replaced", replacedAt: now });
+    transaction.set(nextInviteRef, { ...stripUndefined(nextInvite), createdAtServer: serverTimestamp() });
+    transaction.update(letterRef, { inviteId: nextInviteRef.id, inviteStatus: "pending", updatedAt: now });
+    return nextInvite;
+  });
 }
 
 export async function claimInvite(
@@ -155,8 +211,8 @@ export async function claimInvite(
     }
 
     const invite = mapInvite(inviteSnapshot.id, inviteSnapshot.data());
-    if (invite.status === "claimed") {
-      throw new Error("This invitation has already been claimed.");
+    if (invite.status !== "pending") {
+      throw new Error("This invitation has already been claimed or replaced.");
     }
 
     const now = nowIso();

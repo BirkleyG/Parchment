@@ -73,10 +73,22 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && resource.data.status == "sent"
         && resource.data.inviteId is string
+        && getAfter(/databases/$(database)/documents/invites/$(resource.data.inviteId)).data.status == "claimed"
+        && getAfter(/databases/$(database)/documents/invites/$(resource.data.inviteId)).data.claimedByUid == request.auth.uid
         && request.resource.data.fromUid == resource.data.fromUid
         && request.resource.data.inviteId == resource.data.inviteId
         && request.resource.data.toUid == request.auth.uid
         && request.resource.data.status in ["inTransit", "delivered"];
+
+      // A sender may rotate an unclaimed invitation without changing letter content.
+      allow update: if isSignedIn()
+        && resource.data.fromUid == request.auth.uid
+        && resource.data.status == "sent"
+        && resource.data.inviteStatus == "pending"
+        && request.resource.data.status == "sent"
+        && request.resource.data.fromUid == resource.data.fromUid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["inviteId", "inviteStatus", "updatedAt"]);
 
       // Recipient can only perform mailbox-side actions.
       allow update: if isSignedIn()
@@ -99,12 +111,18 @@ service cloud.firestore {
       allow list: if false;
 
       allow create: if isSignedIn()
-        && request.resource.data.status == "pending";
+        && request.resource.data.status == "pending"
+        && request.resource.data.senderUid == request.auth.uid;
 
       allow update: if isSignedIn()
         && resource.data.status == "pending"
         && request.resource.data.status == "claimed"
         && request.resource.data.claimedByUid == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && resource.data.status == "pending"
+        && request.resource.data.status == "replaced"
+        && get(/databases/$(database)/documents/letters/$(resource.data.letterId)).data.fromUid == request.auth.uid;
 
       allow delete: if false;
     }

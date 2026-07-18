@@ -120,6 +120,15 @@ export async function listDrafts(uid: string): Promise<Letter[]> {
     });
 }
 
+export async function listSentLetters(uid: string): Promise<Letter[]> {
+  assertFirebaseConfigured();
+  const snapshot = await getDocs(query(lettersCollection(), where("fromUid", "==", uid)));
+  return snapshot.docs
+    .map((entry) => mapLetter(entry.id, entry.data()))
+    .filter((letter) => letter.status !== "draft")
+    .sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime());
+}
+
 export async function saveDraft(letter: Letter): Promise<Letter> {
   assertFirebaseConfigured();
 

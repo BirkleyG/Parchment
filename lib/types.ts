@@ -1,5 +1,5 @@
 export type WritingMode = "fountainPen" | "typewriter";
-export type InviteStatus = "pending" | "claimed";
+export type InviteStatus = "pending" | "claimed" | "replaced";
 export type InviteClaimMode = "existingAccount" | "newAccount";
 
 export type UserSettings = {
@@ -105,6 +105,7 @@ export type InviteClaim = {
   claimedByUid?: string;
   claimMode?: InviteClaimMode;
   senderDelayDays: number;
+  senderUid?: string;
 };
 
 export type RegistryGroup = {

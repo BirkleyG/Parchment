@@ -4996,6 +4996,34 @@ body::before {
   border-radius: 6px;
 }
 
+.sent-letters-dialog { max-width: 64rem; }
+.sent-letters-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.sent-letters-heading-row .parchment-dialog-title { margin-bottom: 1.35rem; }
+.sent-letters-close { width: 2.4rem; height: 2.4rem; border: 1px solid rgba(113, 78, 49, 0.2); border-radius: 50%; background: rgba(255, 252, 246, 0.65); color: var(--color-text-soft); font: 1.6rem/1 serif; cursor: pointer; transition: transform 160ms ease, background 160ms ease; }
+.sent-letters-close:hover { transform: rotate(4deg); background: rgba(239, 225, 204, 0.8); }
+.sent-letters-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr); gap: 1.25rem; min-height: 22rem; }
+.sent-letters-list { max-height: 28rem; overflow-y: auto; border-top: 1px solid rgba(113, 78, 49, 0.18); }
+.sent-letter-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; width: 100%; border: 0; border-bottom: 1px solid rgba(113, 78, 49, 0.15); background: transparent; padding: 1rem 0.75rem; text-align: left; color: var(--color-text-strong); cursor: pointer; transition: background 160ms ease, transform 160ms ease; }
+.sent-letter-row:hover:not(:disabled), .sent-letter-row-active { background: rgba(224, 201, 169, 0.2); transform: translateX(2px); }
+.sent-letter-row:disabled { cursor: default; }
+.sent-letter-main { display: grid; gap: 0.3rem; min-width: 0; }
+.sent-letter-main strong { overflow: hidden; font-family: "Playfair Display", "Times New Roman", serif; font-size: 1.05rem; text-overflow: ellipsis; white-space: nowrap; }
+.sent-letter-main small { color: var(--color-text-soft); font-size: 0.75rem; }
+.sent-letter-status { min-width: 5.4rem; border: 1px solid rgba(113, 78, 49, 0.16); padding: 0.35rem 0.55rem; font-size: 0.68rem; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; }
+.sent-letter-status-unclaimed { color: #8d4a3f; background: rgba(174, 95, 75, 0.08); }
+.sent-letter-status-claimed { color: #765c35; background: rgba(172, 137, 77, 0.09); }
+.sent-letter-status-inair { color: #52677b; background: rgba(83, 111, 135, 0.08); }
+.sent-letter-status-delivered { color: #506d50; background: rgba(75, 115, 77, 0.08); }
+.sent-letter-detail { border-left: 1px solid rgba(113, 78, 49, 0.16); padding: 0.8rem 0 0.8rem 1.25rem; }
+.sent-letter-detail h3 { margin-bottom: 0.65rem; font-family: "Playfair Display", "Times New Roman", serif; font-size: 1.55rem; color: var(--color-text-strong); }
+.sent-letter-detail > p { margin-bottom: 1rem; color: var(--color-text-soft); line-height: 1.6; }
+.sent-letters-empty { padding: 2rem 0; color: var(--color-text-soft); line-height: 1.6; }
+
+@media (max-width: 720px) {
+  .sent-letters-layout { grid-template-columns: 1fr; }
+  .sent-letter-detail { border-top: 1px solid rgba(113, 78, 49, 0.16); border-left: 0; padding: 1.1rem 0 0; }
+}
+
 .scene-mobile-only {
   display: none;
 }

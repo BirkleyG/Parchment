@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/providers/AuthProvider";
+import { SentLettersDialog } from "@/components/SentLettersDialog";
 import { DEFAULT_DELAY_OPTIONS } from "@/lib/seedData";
 import {
   getFavoriteRegistryUserIds,
@@ -210,6 +211,7 @@ export default function RegistryPage() {
   const [favoritePendingId, setFavoritePendingId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sentLettersOpen, setSentLettersOpen] = useState(false);
 
   useEffect(() => {
     if (!profile) {
@@ -810,11 +812,11 @@ export default function RegistryPage() {
                 </div>
               </button>
 
-              <button type="button" onClick={() => goToLetter("A")} className="desk-action-button">
+              <button type="button" onClick={() => setSentLettersOpen(true)} className="desk-action-button">
                 <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={48} height={48} className="desk-action-icon" />
                 <div>
-                  <p className="desk-action-title">View Public Listings</p>
-                  <p className="desk-action-copy">Browse the Registry book</p>
+                  <p className="desk-action-title">Sent Letters</p>
+                  <p className="desk-action-copy">Track outgoing correspondence</p>
                 </div>
               </button>
 
@@ -893,6 +895,7 @@ export default function RegistryPage() {
           </section>
         </aside>
       </div>
+      {profile ? <SentLettersDialog open={sentLettersOpen} profile={profile} onClose={() => setSentLettersOpen(false)} /> : null}
     </section>
   );
 }
