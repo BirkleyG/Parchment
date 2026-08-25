@@ -1,5 +1,6 @@
 "use client";
 
+import { FirebaseError } from "firebase/app";
 import {
   collection,
   doc,
@@ -10,14 +11,17 @@ import {
 } from "firebase/firestore";
 
 import { addDaysToIsoDate, nowIso } from "@/lib/dateUtils";
-import { assertFirebaseConfigured, firestoreDb } from "@/lib/firebase";
+import { assertFirebaseConfigured, firebaseAuth, firestoreDb } from "@/lib/firebase";
 import type {
   AuthProfile,
   InviteClaim,
   InviteClaimMode,
   Letter,
+  LetterStatus,
   SendInviteDraftPayload,
 } from "@/lib/types";
+import { diagnosePermissionDenied } from "@/lib/permissionDiagnostics";
+import type { FirestoreOp } from "@/lib/permissionDiagnostics";
 
 function invitesCollection() {
   return collection(firestoreDb!, "invites");
@@ -89,6 +93,16 @@ export async function sendInviteDraft(
 ): Promise<{ invite: InviteClaim; letter: Letter }> {
   assertFirebaseConfigured();
 
+  // Force-refresh the auth token to ensure Firestore sees a valid token.
+  const user = firebaseAuth!.currentUser;
+  if (user) {
+    try {
+      await user.getIdToken(true);
+    } catch (tokenError) {
+      console.error("Auth token refresh failed:", tokenError);
+    }
+  }
+
   const inviteRef = doc(invitesCollection());
   const now = nowIso();
   const pages = Array.isArray(letter.pages) && letter.pages.length > 0 ? letter.pages : [letter.body ?? ""];
@@ -128,12 +142,22 @@ export async function sendInviteDraft(
   };
 
   await Promise.all([
-    setDoc(doc(firestoreDb!, "letters", letter.id), stripUndefined(nextLetter), { merge: true }),
+    setDoc(
+      doc(firestoreDb!, "letters", letter.id),
+      { ...stripUndefined(nextLetter), toUid: null },
+      { merge: true },
+    ),
     setDoc(inviteRef, {
       ...invitePayload,
       createdAtServer: serverTimestamp(),
     }),
-  ]);
+  ]).catch((error) => {
+    const diagnosis = diagnosePermissionDenied(error, { kind: "invite-create" });
+    if (diagnosis) {
+      throw new Error(`Permission denied while preparing your invitation.\n\n${diagnosis}`);
+    }
+    throw error;
+  });
 
   return {
     invite: invitePayload,
@@ -155,6 +179,17 @@ export async function getInviteStatuses(inviteIds: string[]): Promise<Record<str
 
 export async function rotateInviteLink(profile: AuthProfile, letter: Letter): Promise<InviteClaim> {
   assertFirebaseConfigured();
+
+  // Force-refresh the auth token to ensure Firestore sees a valid token.
+  const user = firebaseAuth!.currentUser;
+  if (user) {
+    try {
+      await user.getIdToken(true);
+    } catch (tokenError) {
+      console.error("Auth token refresh failed:", tokenError);
+    }
+  }
+
   if (!letter.inviteId || letter.inviteStatus !== "pending") {
     throw new Error("Only unclaimed invitation links can be replaced.");
   }
@@ -192,6 +227,13 @@ export async function rotateInviteLink(profile: AuthProfile, letter: Letter): Pr
     transaction.set(nextInviteRef, { ...stripUndefined(nextInvite), createdAtServer: serverTimestamp() });
     transaction.update(letterRef, { inviteId: nextInviteRef.id, inviteStatus: "pending", updatedAt: now });
     return nextInvite;
+  }).catch((error) => {
+    const op: FirestoreOp = { kind: "invite-rotate", token: letter.inviteId! };
+    const diagnosis = diagnosePermissionDenied(error, op);
+    if (diagnosis) {
+      throw new Error(`Permission denied while rotating this invitation link.\n\n${diagnosis}`);
+    }
+    throw error;
   });
 }
 
@@ -202,70 +244,106 @@ export async function claimInvite(
 ): Promise<{ invite: InviteClaim; letter: Letter }> {
   assertFirebaseConfigured();
 
-  return runTransaction(firestoreDb!, async (transaction) => {
-    const inviteRef = doc(firestoreDb!, "invites", token);
-    const inviteSnapshot = await transaction.get(inviteRef);
+  // New accounts often hit a transient Firestore "permission-denied" because
+  // the freshly-minted ID token hasn't propagated to the rules engine. One
+  // getIdToken(true) is not reliably enough, so we force-refresh the token
+  // and retry the transaction with exponential backoff on permission-denied.
+  const MAX_ATTEMPTS = 4;
+  const BASE_DELAY_MS = 400;
+  let lastError: unknown;
 
-    if (!inviteSnapshot.exists()) {
-      throw new Error("This invitation could not be found.");
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const user = firebaseAuth!.currentUser;
+    if (user) {
+      try {
+        await user.getIdToken(true);
+      } catch (tokenError) {
+        console.error("Auth token refresh failed:", tokenError);
+      }
     }
 
-    const invite = mapInvite(inviteSnapshot.id, inviteSnapshot.data());
-    if (invite.status !== "pending") {
-      throw new Error("This invitation has already been claimed or replaced.");
+    try {
+      return await runTransaction(firestoreDb!, async (transaction) => {
+        const inviteRef = doc(firestoreDb!, "invites", token);
+        const inviteSnapshot = await transaction.get(inviteRef);
+
+        if (!inviteSnapshot.exists()) {
+          throw new Error("This invitation could not be found.");
+        }
+
+        const invite = mapInvite(inviteSnapshot.id, inviteSnapshot.data());
+        if (invite.status !== "pending") {
+          throw new Error("This invitation has already been claimed or replaced.");
+        }
+
+        const now = nowIso();
+        const recipient = mapClaimRecipient(profile);
+        const senderDelayDays = invite.senderDelayDays || 1;
+        const nextDeliveredAt = claimMode === "existingAccount" ? addDaysToIsoDate(now, senderDelayDays) : now;
+        const nextStatus: LetterStatus = claimMode === "existingAccount" ? "inTransit" : "delivered";
+
+        const nextLetterData: Record<string, unknown> = stripUndefined({
+          ...recipient,
+          status: nextStatus,
+          deliveredAt: nextDeliveredAt,
+          updatedAt: now,
+          inviteId: token,
+          inviteStatus: "claimed",
+          claimMode,
+        });
+
+        const nextInvite: Record<string, unknown> = stripUndefined({
+          ...inviteSnapshot.data(),
+          status: "claimed",
+          claimedAt: now,
+          claimedByUid: profile.uid,
+          claimMode,
+          claimedAtServer: serverTimestamp(),
+        });
+
+        transaction.update(doc(firestoreDb!, "letters", invite.letterId), nextLetterData);
+        transaction.update(inviteRef, nextInvite);
+
+        return {
+          invite: mapInvite(token, nextInvite),
+          letter: {
+            id: invite.letterId,
+            fromName: invite.senderDisplayName,
+            fromMailboxName: "",
+            toName: String(nextLetterData.toName ?? ""),
+            toMailboxName: String(nextLetterData.toMailboxName ?? ""),
+            title: invite.title,
+            pages: [""],
+            body: "",
+            status: nextStatus,
+            createdAt: invite.createdAt,
+            deliveredAt: typeof nextLetterData.deliveredAt === "string" ? nextLetterData.deliveredAt : undefined,
+            writingMode: "fountainPen" as const,
+            toUid: typeof nextLetterData.toUid === "string" ? nextLetterData.toUid : undefined,
+            updatedAt: typeof nextLetterData.updatedAt === "string" ? nextLetterData.updatedAt : undefined,
+            inviteId: typeof nextLetterData.inviteId === "string" ? nextLetterData.inviteId : undefined,
+            inviteStatus: nextLetterData.inviteStatus === "pending" ? "pending" as const : nextLetterData.inviteStatus === "claimed" ? "claimed" as const : undefined,
+            recipientMode: "invite" as const,
+            deliveryDelayDays: Number(nextLetterData.deliveryDelayDays ?? senderDelayDays),
+            claimMode,
+          },
+        };
+      });
+    } catch (error) {
+      lastError = error;
+      const isPermissionDenied = error instanceof FirebaseError && error.code === "permission-denied";
+      if (!isPermissionDenied || attempt === MAX_ATTEMPTS) {
+        break;
+      }
+      // Exponential backoff before forcing another token refresh + retry.
+      await new Promise((resolve) => setTimeout(resolve, BASE_DELAY_MS * attempt));
     }
+  }
 
-    const now = nowIso();
-    const recipient = mapClaimRecipient(profile);
-    const senderDelayDays = invite.senderDelayDays || 1;
-    const nextDeliveredAt = claimMode === "existingAccount" ? addDaysToIsoDate(now, senderDelayDays) : now;
-    const nextStatus = claimMode === "existingAccount" ? "inTransit" : "delivered";
-
-    const nextLetterData: Record<string, unknown> = stripUndefined({
-      ...recipient,
-      status: nextStatus,
-      deliveredAt: nextDeliveredAt,
-      updatedAt: now,
-      inviteId: token,
-      inviteStatus: "claimed",
-      claimMode,
-    });
-
-    const nextInvite: Record<string, unknown> = stripUndefined({
-      ...inviteSnapshot.data(),
-      status: "claimed",
-      claimedAt: now,
-      claimedByUid: profile.uid,
-      claimMode,
-      claimedAtServer: serverTimestamp(),
-    });
-
-    transaction.update(doc(firestoreDb!, "letters", invite.letterId), nextLetterData);
-    transaction.update(inviteRef, nextInvite);
-
-    return {
-      invite: mapInvite(token, nextInvite),
-      letter: {
-        id: invite.letterId,
-        fromName: invite.senderDisplayName,
-        fromMailboxName: "",
-        toName: String(nextLetterData.toName ?? ""),
-        toMailboxName: String(nextLetterData.toMailboxName ?? ""),
-        title: invite.title,
-        pages: [""],
-        body: "",
-        status: nextStatus,
-        createdAt: invite.createdAt,
-        deliveredAt: typeof nextLetterData.deliveredAt === "string" ? nextLetterData.deliveredAt : undefined,
-        writingMode: "fountainPen",
-        toUid: typeof nextLetterData.toUid === "string" ? nextLetterData.toUid : undefined,
-        updatedAt: typeof nextLetterData.updatedAt === "string" ? nextLetterData.updatedAt : undefined,
-        inviteId: typeof nextLetterData.inviteId === "string" ? nextLetterData.inviteId : undefined,
-        inviteStatus: nextLetterData.inviteStatus === "pending" ? "pending" : nextLetterData.inviteStatus === "claimed" ? "claimed" : undefined,
-        recipientMode: "invite",
-        deliveryDelayDays: Number(nextLetterData.deliveryDelayDays ?? senderDelayDays),
-        claimMode,
-      },
-    };
-  });
+  const op: FirestoreOp = { kind: "invite-claim", token, claimMode };
+  const diagnosis = diagnosePermissionDenied(lastError, op);
+  if (diagnosis) {
+    throw new Error(`Permission denied while claiming your invitation.\n\n${diagnosis}`);
+  }
+  throw lastError;
 }

@@ -227,35 +227,44 @@ export default function DeskPage() {
       return;
     }
 
-    if (payload.kind === "registry") {
-      await sendDraft(profile, activeDraft, payload);
-    } else {
-      const { invite } = await sendInviteDraft(profile, activeDraft, payload);
-      const inviteLink = buildInviteUrl(window.location.origin, invite.id);
-      const clipboardText = buildInviteMessage(inviteLink);
-      let clipboardStatus = "Invitation copied to your clipboard.";
+    try {
+      if (payload.kind === "registry") {
+        await sendDraft(profile, activeDraft, payload);
+      } else {
+        const { invite } = await sendInviteDraft(profile, activeDraft, payload);
+        const inviteLink = buildInviteUrl(window.location.origin, invite.id);
+        const clipboardText = buildInviteMessage(inviteLink);
+        let clipboardStatus = "Invitation copied to your clipboard.";
 
-      try {
-        await navigator.clipboard.writeText(clipboardText);
-      } catch {
-        clipboardStatus = "Copy the message below before you send it along.";
+        try {
+          await navigator.clipboard.writeText(clipboardText);
+        } catch {
+          clipboardStatus = "Copy the message below before you send it along.";
+        }
+
+        setInviteConfirmation({
+          inviteLink,
+          recipientName: payload.recipientName.trim(),
+          clipboardStatus,
+        });
       }
 
-      setInviteConfirmation({
-        inviteLink,
-        recipientName: payload.recipientName.trim(),
-        clipboardStatus,
-      });
+      const remainingDrafts = drafts.filter((entry) => entry.id !== activeDraft.id);
+      setDrafts(remainingDrafts);
+      const nextDraft = remainingDrafts[0] ?? null;
+      setActiveDraftId(nextDraft?.id ?? null);
+      if (nextDraft) {
+        setLastDraftId(nextDraft.id);
+      }
+      setNotice(payload.kind === "registry" ? "Letter sent" : "Invitation prepared");
+    } catch (caughtError) {
+      console.error("Send failed:", caughtError);
+      setNotice(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to send your letter. Please try again.",
+      );
     }
-
-    const remainingDrafts = drafts.filter((entry) => entry.id !== activeDraft.id);
-    setDrafts(remainingDrafts);
-    const nextDraft = remainingDrafts[0] ?? null;
-    setActiveDraftId(nextDraft?.id ?? null);
-    if (nextDraft) {
-      setLastDraftId(nextDraft.id);
-    }
-    setNotice(payload.kind === "registry" ? "Letter sent" : "Invitation prepared");
   }
 
   async function handleCopyInviteLink() {

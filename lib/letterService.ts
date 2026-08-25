@@ -14,9 +14,11 @@ import {
 } from "firebase/firestore";
 
 import { addDaysToIsoDate, nowIso } from "@/lib/dateUtils";
-import { assertFirebaseConfigured, firestoreDb } from "@/lib/firebase";
+import { assertFirebaseConfigured, firebaseAuth, firestoreDb } from "@/lib/firebase";
 import type { AuthProfile, Letter, SendRegistryDraftPayload } from "@/lib/types";
 import { findUserByMailbox } from "@/lib/registryService";
+import { diagnosePermissionDenied } from "@/lib/permissionDiagnostics";
+import type { FirestoreOp } from "@/lib/permissionDiagnostics";
 
 function lettersCollection() {
   return collection(firestoreDb!, "letters");
@@ -142,14 +144,24 @@ export async function saveDraft(letter: Letter): Promise<Letter> {
     updatedAt,
   };
 
-  await setDoc(doc(firestoreDb!, "letters", letter.id), stripUndefined(nextLetter), {
-    merge: true,
-  });
+  await setDoc(
+    doc(firestoreDb!, "letters", letter.id),
+    stripUndefined(nextLetter),
+    { merge: true },
+  );
   return nextLetter;
 }
 
 export async function burnDraft(letterId: string): Promise<void> {
   assertFirebaseConfigured();
+  const user = firebaseAuth!.currentUser;
+  if (user) {
+    try {
+      await user.getIdToken(true);
+    } catch (tokenError) {
+      console.error("Auth token refresh failed:", tokenError);
+    }
+  }
   await deleteDoc(doc(firestoreDb!, "letters", letterId));
 }
 
@@ -159,6 +171,16 @@ export async function sendDraft(
   payload: SendRegistryDraftPayload,
 ): Promise<Letter> {
   assertFirebaseConfigured();
+
+  // Force-refresh the auth token to ensure Firestore sees a valid token.
+  const user = firebaseAuth!.currentUser;
+  if (user) {
+    try {
+      await user.getIdToken(true);
+    } catch (tokenError) {
+      console.error("Auth token refresh failed:", tokenError);
+    }
+  }
 
   const recipient = await findUserByMailbox(payload.recipientMailboxName);
   if (!recipient) {
@@ -190,14 +212,35 @@ export async function sendDraft(
     claimMode: undefined,
   };
 
-  await setDoc(doc(firestoreDb!, "letters", letter.id), stripUndefined(nextLetter), {
-    merge: true,
-  });
+  try {
+    await setDoc(
+      doc(firestoreDb!, "letters", letter.id),
+      stripUndefined(nextLetter),
+      { merge: true },
+    );
+  } catch (error) {
+    const op: FirestoreOp = { kind: "send-draft", letterId: letter.id, recipientMailbox: payload.recipientMailboxName };
+    const diagnosis = diagnosePermissionDenied(error, op);
+    if (diagnosis) {
+      throw new Error(`Permission denied while sealing and sending your letter.\n\n${diagnosis}`);
+    }
+    throw error;
+  }
   return nextLetter;
 }
 
 export async function syncIncomingDeliveries(uid: string): Promise<void> {
   assertFirebaseConfigured();
+
+  // Force-refresh the auth token to ensure Firestore sees a valid token.
+  const user = firebaseAuth!.currentUser;
+  if (user) {
+    try {
+      await user.getIdToken(true);
+    } catch (tokenError) {
+      console.error("Auth token refresh failed:", tokenError);
+    }
+  }
 
   const snapshot = await getDocs(query(lettersCollection(), where("toUid", "==", uid)));
   const deliverable = snapshot.docs
@@ -255,23 +298,49 @@ export async function getLetter(letterId: string): Promise<Letter | null> {
 
 export async function openLetter(letterId: string): Promise<void> {
   assertFirebaseConfigured();
+  const user = firebaseAuth!.currentUser;
+  if (user) {
+    try {
+      await user.getIdToken(true);
+    } catch (tokenError) {
+      console.error("Auth token refresh failed:", tokenError);
+    }
+  }
   const now = nowIso();
-  await updateDoc(doc(firestoreDb!, "letters", letterId), {
-    status: "opened",
-    openedAt: now,
-    updatedAt: now,
-  });
+  try {
+    await updateDoc(doc(firestoreDb!, "letters", letterId), {
+      status: "opened",
+      openedAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    const op: FirestoreOp = { kind: "letter-update", letterId };
+    const diagnosis = diagnosePermissionDenied(error, op);
+    throw diagnosis ? new Error(`Unable to open letter.\n\n${diagnosis}`) : error;
+  }
 }
 
 export async function moveLetterToBin(letterId: string, binId: string): Promise<void> {
   assertFirebaseConfigured();
-  await updateDoc(doc(firestoreDb!, "letters", letterId), {
-    binId,
-    updatedAt: nowIso(),
-  });
+  try {
+    await updateDoc(doc(firestoreDb!, "letters", letterId), {
+      binId,
+      updatedAt: nowIso(),
+    });
+  } catch (error) {
+    const op: FirestoreOp = { kind: "letter-update", letterId };
+    const diagnosis = diagnosePermissionDenied(error, op);
+    throw diagnosis ? new Error(`Unable to move letter to bin.\n\n${diagnosis}`) : error;
+  }
 }
 
 export async function burnReceivedLetter(letterId: string): Promise<void> {
   assertFirebaseConfigured();
-  await deleteDoc(doc(firestoreDb!, "letters", letterId));
+  try {
+    await deleteDoc(doc(firestoreDb!, "letters", letterId));
+  } catch (error) {
+    const op: FirestoreOp = { kind: "letter-delete", letterId };
+    const diagnosis = diagnosePermissionDenied(error, op);
+    throw diagnosis ? new Error(`Unable to delete letter.\n\n${diagnosis}`) : error;
+  }
 }

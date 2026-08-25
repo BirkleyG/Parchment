@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { ConfirmBurnModal } from "@/components/ConfirmBurnModal";
 import { ParchmentDialog } from "@/components/ParchmentDialog";
@@ -36,6 +37,8 @@ function selectedBinName(selectedBinId: string, bins: MailBin[]) {
 
 export default function MailboxPage() {
   const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  const preselectedLetterId = searchParams.get("letter");
   const [letters, setLetters] = useState<Letter[]>([]);
   const [bins, setBins] = useState<MailBin[]>([]);
   const [selectedBinId, setSelectedBinId] = useState("all");
@@ -105,11 +108,27 @@ export default function MailboxPage() {
       return;
     }
 
+    // If a specific letter was requested via URL (e.g. from an invite claim
+    // redirect), prefer that letter if it's in the current view.
+    if (preselectedLetterId && displayedLetters.some((letter) => letter.id === preselectedLetterId)) {
+      setSelectedLetterId(preselectedLetterId);
+      return;
+    }
+
     const currentStillVisible = displayedLetters.some((letter) => letter.id === selectedLetterId);
     if (!currentStillVisible) {
       setSelectedLetterId(displayedLetters[0].id);
     }
-  }, [displayedLetters, selectedLetterId]);
+  }, [displayedLetters, selectedLetterId, preselectedLetterId]);
+
+  // Auto-open the preselected letter if it was requested via URL.
+  useEffect(() => {
+    if (preselectedLetterId && displayedLetters.some((letter) => letter.id === preselectedLetterId)) {
+      setSelectedLetterId(preselectedLetterId);
+      setReadPageIndex(0);
+      setReadModalOpen(true);
+    }
+  }, [preselectedLetterId, displayedLetters]);
 
   const selectedLetter = displayedLetters.find((letter) => letter.id === selectedLetterId) ?? null;
   const selectedLetterPages = letterPages(selectedLetter);

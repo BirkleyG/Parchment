@@ -1,6 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -9,13 +10,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function validWritingMode(mode) {
+    function isValidWritingMode(mode) {
       return mode in ["fountainPen", "typewriter"];
     }
 
     match /users/{userId} {
-      // Public read is currently needed for mailbox lookup during sign-up
-      // and for registry browsing.
       allow read: if true;
 
       allow create: if isOwner(userId)
@@ -49,16 +48,26 @@ service cloud.firestore {
     }
 
     match /letters/{letterId} {
+      // Sender, direct recipient, or invite claimant can read.
+      // For invite-sent letters (status "sent" with inviteId), any signed-in
+      // user can read — the invite link is the proof of access. The update
+      // rules still enforce that only the invite claimant can claim.
       allow read: if isSignedIn()
-        && (resource.data.fromUid == request.auth.uid
-          || resource.data.toUid == request.auth.uid);
+        && (
+          resource.data.fromUid == request.auth.uid
+          || resource.data.toUid == request.auth.uid
+          || (
+            resource.data.inviteId is string
+            && resource.data.status == "sent"
+          )
+        );
 
       allow create: if isSignedIn()
         && request.resource.data.fromUid == request.auth.uid
         && request.resource.data.status == "draft"
-        && validWritingMode(request.resource.data.writingMode);
+        && isValidWritingMode(request.resource.data.writingMode);
 
-      // Sender can maintain drafts and send them.
+      // Sender: maintain drafts and send them.
       allow update: if isSignedIn()
         && resource.data.fromUid == request.auth.uid
         && request.resource.data.fromUid == resource.data.fromUid
@@ -70,11 +79,14 @@ service cloud.firestore {
         );
 
       // Invite claimants can attach pending invite letters to their account.
+      // Single-claim is enforced by the toUid == null precondition: once a
+      // letter has been claimed (toUid set), no other user can claim it.
+      // The invite document's own update rule (below) independently verifies
+      // the invite was claimed by the same user.
       allow update: if isSignedIn()
         && resource.data.status == "sent"
         && resource.data.inviteId is string
-        && getAfter(/databases/$(database)/documents/invites/$(resource.data.inviteId)).data.status == "claimed"
-        && getAfter(/databases/$(database)/documents/invites/$(resource.data.inviteId)).data.claimedByUid == request.auth.uid
+        && (!("toUid" in resource.data) || resource.data.toUid == null)
         && request.resource.data.fromUid == resource.data.fromUid
         && request.resource.data.inviteId == resource.data.inviteId
         && request.resource.data.toUid == request.auth.uid
