@@ -18,9 +18,10 @@ import type { Letter, SendDraftPayload } from "@/lib/types";
 
 const AUTOSAVE_DELAY_MS = 800;
 const DESK_PAGE_WIDTH = 760;
-const DESK_PAGE_HEIGHT = 980;
-const MIN_PAGE_SCALE = 0.55;
-const MAX_PAGE_SCALE = 1.3;
+const DESK_PAGE_HEIGHT = 860;
+const MIN_PAGE_SCALE = 0.5;
+const MAX_PAGE_SCALE = 1.55;
+const FOCUS_MAX_PAGE_SCALE = 2.4;
 
 function normalizeDraft(letter: Letter): Letter {
   const pages = Array.isArray(letter.pages) && letter.pages.length > 0 ? letter.pages : [letter.body ?? ""];
@@ -69,6 +70,7 @@ export default function DeskPage() {
     clipboardStatus: string | null;
   } | null>(null);
   const [burnModalOpen, setBurnModalOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [newLetterModalOpen, setNewLetterModalOpen] = useState(false);
   const [pendingComposeTo, setPendingComposeTo] = useState<string | null>(null);
   const [pageOverflowState, setPageOverflowState] = useState<{
@@ -140,7 +142,8 @@ export default function DeskPage() {
       }
 
       const fitScale = Math.min(availableWidth / DESK_PAGE_WIDTH, availableHeight / DESK_PAGE_HEIGHT);
-      const nextScale = Math.min(MAX_PAGE_SCALE, Math.max(MIN_PAGE_SCALE, fitScale));
+      const maxScale = focusMode ? FOCUS_MAX_PAGE_SCALE : MAX_PAGE_SCALE;
+      const nextScale = Math.min(maxScale, Math.max(MIN_PAGE_SCALE, fitScale));
       frame.style.setProperty("--page-scale", String(nextScale));
     };
 
@@ -149,7 +152,7 @@ export default function DeskPage() {
     const observer = new ResizeObserver(applyScale);
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [activeDraft]);
+  }, [activeDraft, focusMode]);
 
   useEffect(() => {
     setActivePageIndex((current) => {
@@ -450,6 +453,95 @@ export default function DeskPage() {
   const pageCount = pages.length;
   const senderName = senderDisplayName(activeDraft, profile?.username);
   const deliveryWindow = draftDeliveryText(profile?.settings.outgoingDelayDays ?? 1);
+
+  const paperNode = activeDraft ? (
+    <div className="desk-page-scale-frame" ref={pageScaleFrameRef}>
+      <div className="paper-sheet desk-paper">
+        <span className="paper-corner paper-corner-tl" />
+        <span className="paper-corner paper-corner-tr" />
+        <span className="paper-corner paper-corner-bl" />
+        <span className="paper-corner paper-corner-br" />
+
+        <div className="desk-paper-body">
+          <Image
+            src="/design-assets/Stamp.png"
+            alt=""
+            width={200}
+            height={140}
+            className="desk-postmark"
+          />
+
+          <textarea
+            ref={letterTextareaRef}
+            value={activePageValue}
+            onChange={(event) => handlePageChange(event.target.value)}
+            className="letter-textarea desk-letter-textarea"
+            placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
+            spellCheck={false}
+          />
+          <textarea
+            ref={measureTextareaRef}
+            tabIndex={-1}
+            aria-hidden="true"
+            className="letter-textarea desk-letter-textarea desk-measure-textarea"
+            readOnly
+          />
+
+          <Image
+            src="/design-assets/Leaf 6.png"
+            alt=""
+            width={170}
+            height={170}
+            className="desk-paper-sprig"
+          />
+        </div>
+
+        <div className="desk-paper-toolbar">
+          <div className="desk-toolbar-item">
+            <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+            <span>{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
+          </div>
+          <div className="desk-toolbar-item desk-toolbar-item-centered">
+            <button
+              type="button"
+              className="desk-page-nav-button"
+              onClick={() => setActivePageIndex((current) => Math.max(0, current - 1))}
+              disabled={activePageIndex === 0}
+              aria-label="Previous page"
+            >
+              {"<"}
+            </button>
+            <select
+              value={activePageIndex}
+              onChange={(event) => setActivePageIndex(Number(event.target.value))}
+              className="desk-page-select"
+              aria-label="Selected page"
+            >
+              {pages.map((_, index) => (
+                <option key={`${activeDraft?.id ?? "draft"}-page-${index + 1}`} value={index}>
+                  {`Page ${index + 1} of ${pageCount}`}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="desk-page-nav-button"
+              onClick={() => setActivePageIndex((current) => Math.min(pageCount - 1, current + 1))}
+              disabled={activePageIndex >= pageCount - 1}
+              aria-label="Next page"
+            >
+              {">"}
+            </button>
+          </div>
+          <div className="desk-toolbar-item desk-toolbar-item-end">
+            <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+            <span>Last edited {formatDateTime(activeDraft.updatedAt ?? activeDraft.createdAt)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <section className="desk-workspace">
@@ -629,93 +721,13 @@ export default function DeskPage() {
 
           <section className="desk-card desk-center-card">
             {activeDraft ? (
-              <div className="desk-page-viewport" ref={pageViewportRef}>
-                <div className="desk-page-scale-frame" ref={pageScaleFrameRef}>
-                  <div className="paper-sheet desk-paper">
-                    <span className="paper-corner paper-corner-tl" />
-                    <span className="paper-corner paper-corner-tr" />
-                    <span className="paper-corner paper-corner-bl" />
-                    <span className="paper-corner paper-corner-br" />
-
-                    <div className="desk-paper-body">
-                      <Image
-                        src="/design-assets/Stamp.png"
-                        alt=""
-                        width={200}
-                        height={140}
-                        className="desk-postmark"
-                      />
-
-                      <textarea
-                        ref={letterTextareaRef}
-                        value={activePageValue}
-                        onChange={(event) => handlePageChange(event.target.value)}
-                        className="letter-textarea desk-letter-textarea"
-                        placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
-                        spellCheck={false}
-                      />
-                      <textarea
-                        ref={measureTextareaRef}
-                        tabIndex={-1}
-                        aria-hidden="true"
-                        className="letter-textarea desk-letter-textarea desk-measure-textarea"
-                        readOnly
-                      />
-
-                      <Image
-                        src="/design-assets/Leaf 6.png"
-                        alt=""
-                        width={170}
-                        height={170}
-                        className="desk-paper-sprig"
-                      />
-                    </div>
-
-                    <div className="desk-paper-toolbar">
-                      <div className="desk-toolbar-item">
-                        <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
-                        <span>{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
-                      </div>
-                      <div className="desk-toolbar-item desk-toolbar-item-centered">
-                        <button
-                          type="button"
-                          className="desk-page-nav-button"
-                          onClick={() => setActivePageIndex((current) => Math.max(0, current - 1))}
-                          disabled={activePageIndex === 0}
-                          aria-label="Previous page"
-                        >
-                          {"<"}
-                        </button>
-                        <select
-                          value={activePageIndex}
-                          onChange={(event) => setActivePageIndex(Number(event.target.value))}
-                          className="desk-page-select"
-                          aria-label="Selected page"
-                        >
-                          {pages.map((_, index) => (
-                            <option key={`${activeDraft?.id ?? "draft"}-page-${index + 1}`} value={index}>
-                              {`Page ${index + 1} of ${pageCount}`}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="desk-page-nav-button"
-                          onClick={() => setActivePageIndex((current) => Math.min(pageCount - 1, current + 1))}
-                          disabled={activePageIndex >= pageCount - 1}
-                          aria-label="Next page"
-                        >
-                          {">"}
-                        </button>
-                      </div>
-                      <div className="desk-toolbar-item desk-toolbar-item-end">
-                        <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
-                        <span>Last edited {formatDateTime(activeDraft.updatedAt ?? activeDraft.createdAt)}</span>
-                      </div>
-                    </div>
-                  </div>
+              focusMode ? (
+                <div className="desk-page-viewport-placeholder" aria-hidden="true" />
+              ) : (
+                <div className="desk-page-viewport" ref={pageViewportRef}>
+                  {paperNode}
                 </div>
-              </div>
+              )
             ) : (
               <div className="paper-sheet flex h-full min-h-[560px] flex-col items-center justify-center px-8 text-center">
                 <Image src="/design-assets/Letter.png" alt="" width={84} height={84} className="h-20 w-20 object-contain opacity-85" />
@@ -753,6 +765,19 @@ export default function DeskPage() {
                   <div>
                     <p className="desk-action-title">Start a Letter</p>
                     <p className="desk-action-copy">Continue your letter</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFocusMode(true)}
+                  className="desk-action-button"
+                  disabled={!activeDraft}
+                >
+                  <Image src="/design-assets/Open Book.png" alt="" width={50} height={50} className="desk-action-icon" />
+                  <div>
+                    <p className="desk-action-title">Focus Mode</p>
+                    <p className="desk-action-copy">Fill the whole screen</p>
                   </div>
                 </button>
 
@@ -807,39 +832,6 @@ export default function DeskPage() {
                 </div>
               </div>
             </section>
-
-            <section className="desk-guidance-card">
-              <Image src="/design-assets/Ticket with Flower.png" alt="" width={44} height={44} className="h-10 w-10 object-contain" />
-              <div>
-                <p className="desk-panel-label mb-1">Writing Guidance</p>
-                <p className="text-[0.78rem] leading-5 text-[var(--color-text-soft)]">
-                  Take your time. Meaningful letters are rarely written in a rush.
-                </p>
-              </div>
-            </section>
-
-            <section className="desk-right-quote">
-              <Image
-                src="/design-assets/Leaf 5.png"
-                alt=""
-                width={74}
-                height={74}
-                className="desk-right-quote-leaf-left"
-              />
-              <Image
-                src="/design-assets/Leaf 2.png"
-                alt=""
-                width={74}
-                height={74}
-                className="desk-right-quote-leaf-right"
-              />
-              <p className="font-fountain text-[1.22rem] leading-tight text-[var(--color-text-soft)]">
-                Some things are better
-              </p>
-              <p className="font-fountain text-[1.22rem] leading-tight text-[var(--color-text-soft)]">
-                when they take time.
-              </p>
-            </section>
           </aside>
         </div>
       </section>
@@ -871,6 +863,23 @@ export default function DeskPage() {
         onClose={() => setBurnModalOpen(false)}
         onConfirm={handleBurnDraft}
       />
+
+      <ParchmentDialog
+        open={focusMode && Boolean(activeDraft)}
+        onClose={() => setFocusMode(false)}
+        className="focus-mode-overlay scene-desktop-only"
+        contentClassName="focus-mode-shell"
+      >
+        <div className="focus-mode-bar">
+          <button type="button" className="secondary-button" onClick={() => setFocusMode(false)}>
+            Exit Focus Mode
+          </button>
+          <span className="focus-mode-bar-meta">{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
+        </div>
+        <div className="desk-page-viewport focus-mode-viewport" ref={pageViewportRef}>
+          {paperNode}
+        </div>
+      </ParchmentDialog>
 
       <ParchmentDialog
         open={mobileEditorOpen && Boolean(activeDraft)}

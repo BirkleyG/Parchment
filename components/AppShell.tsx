@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <header className="app-topbar">
       <div className="app-brand-block">
         <Link href="/desk" className="app-brand">
-          <span className="font-display app-brand-wordmark">Parchment.</span>
+          <span className="font-script app-brand-wordmark">Parchment.</span>
           <Image
             src="/design-assets/Seal.png"
             alt=""
@@ -31,9 +31,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="app-brand-seal"
           />
         </Link>
-        <p className="app-brand-copy">
-          A calm writing space for slow correspondence.
-        </p>
       </div>
 
       {isSceneRoute ? <SceneNav pathname={pathname} /> : null}

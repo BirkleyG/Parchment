@@ -687,36 +687,18 @@ export default function MailboxPage() {
                   className="desk-summary-sprig"
                 />
                 <div className="desk-summary-grid">
-                  <span>From</span>
-                  <span className="text-[var(--color-text-strong)]">{selectedLetter?.fromName || "Unknown sender"}</span>
-                  <span>To</span>
-                  <span className="text-[var(--color-text-strong)]">{profile?.settings.firstName} {profile?.settings.lastName}</span>
-                  <span>Title</span>
-                  <span className="text-[var(--color-text-strong)]">{selectedLetter?.title || "Untitled Letter"}</span>
                   <span>Arrival Date</span>
                   <span className="text-[var(--color-text-strong)]">
                     {selectedLetter ? formatLetterArrival(selectedLetter.deliveredAt ?? selectedLetter.createdAt) : "-"}
                   </span>
                   <span>Current Bin</span>
                   <span className="text-[var(--color-text-strong)]">{selectedBinLabel}</span>
-                  <span>Status</span>
-                  <span className="text-[var(--color-text-strong)]">{selectedLetter?.status === "opened" ? "Opened" : "Unopened"}</span>
-                  <span>Delivery</span>
+                  <span>Privacy</span>
                   <span className="flex items-center gap-2 text-[var(--color-text-strong)]">
                     <Image src="/design-assets/Lock.png" alt="" width={16} height={16} className="h-4 w-4 object-contain" />
-                    Delivered
+                    Encrypted &amp; private
                   </span>
                 </div>
-              </div>
-            </section>
-
-            <section className="desk-guidance-card">
-              <Image src="/design-assets/Ticket with Flower.png" alt="" width={44} height={44} className="h-10 w-10 object-contain" />
-              <div>
-                <p className="desk-panel-label mb-1">Writing Guidance</p>
-                <p className="text-[0.78rem] leading-5 text-[var(--color-text-soft)]">
-                  Take your time. Meaningful letters are rarely written in a rush.
-                </p>
               </div>
             </section>
           </aside>
