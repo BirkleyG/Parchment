@@ -140,6 +140,26 @@ export default function MailboxPage() {
     setReadPageIndex((current) => Math.min(current, Math.max(0, selectedLetterPages.length - 1)));
   }, [selectedLetterPages.length]);
 
+  async function handleSelectBin(binId: string) {
+    setSelectedBinId(binId);
+
+    const firstLetter = letters.find((letter) => letter.binId === binId);
+    if (!firstLetter) {
+      return;
+    }
+
+    setSelectedLetterId(firstLetter.id);
+
+    if (firstLetter.status !== "opened") {
+      await openLetter(firstLetter.id);
+      await refreshMailbox();
+      setStatusMessage("Letter opened.");
+    }
+
+    setReadPageIndex(0);
+    setReadModalOpen(true);
+  }
+
   async function handleOpenLetter() {
     if (!selectedLetter) {
       return;
@@ -345,7 +365,7 @@ export default function MailboxPage() {
                   <button
                     key={bin.id}
                     type="button"
-                    onClick={() => setSelectedBinId(bin.id)}
+                    onClick={() => void handleSelectBin(bin.id)}
                     className={`mailbox-bin-card ${selectedBinId === bin.id ? "mailbox-bin-card-active" : ""}`}
                   >
                     <div>

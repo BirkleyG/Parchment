@@ -6,11 +6,13 @@ import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/components/providers/AuthProvider";
 import { SceneNav } from "@/components/SceneNav";
+import packageJson from "@/package.json";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
-  const isSceneRoute = pathname === "/desk" || pathname === "/mailbox" || pathname === "/registry";
+  const isSceneRoute =
+    pathname === "/desk" || pathname === "/mailbox" || pathname === "/registry" || pathname === "/admin";
 
   const displayName = `${profile?.settings.firstName ?? ""} ${profile?.settings.lastName ?? ""}`.trim()
     || profile?.username
@@ -37,6 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {isSceneRoute ? <SceneNav pathname={pathname} /> : null}
 
       <div className="app-account">
+        <span className="app-version-badge">v{packageJson.version}</span>
         {profile ? (
           <div className="app-profile">
             <div className="app-profile-initials">

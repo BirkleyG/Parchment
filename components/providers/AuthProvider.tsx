@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -29,15 +30,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
+  const loadedProfileUidRef = useRef<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
       setProfile(null);
+      loadedProfileUidRef.current = null;
       return;
     }
 
     const nextProfile = await getProfileByUid(user.uid);
     setProfile(nextProfile);
+    loadedProfileUidRef.current = user.uid;
   }, [user]);
 
   useEffect(() => {
@@ -47,17 +51,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const unsubscribe = onAuthStateChanged(firebaseAuth, async (nextUser) => {
-      setLoading(true);
       setUser(nextUser);
 
       if (!nextUser) {
         setProfile(null);
+        loadedProfileUidRef.current = null;
         setLoading(false);
         return;
       }
 
+      // Firebase also re-fires this observer on a silent background token
+      // refresh for the *same* signed-in user (roughly hourly, and often on
+      // tab focus). Refetching the profile every time would hand out a new
+      // object reference, and pages that reset local edit state whenever
+      // `profile` changes (desk drafts, registry settings) would lose
+      // whatever was being typed. Only reload when the uid actually changed.
+      if (loadedProfileUidRef.current === nextUser.uid) {
+        return;
+      }
+
+      setLoading(true);
       const nextProfile = await getProfileByUid(nextUser.uid);
       setProfile(nextProfile);
+      loadedProfileUidRef.current = nextUser.uid;
       setLoading(false);
     });
 
@@ -68,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOutCurrentUser();
     setUser(null);
     setProfile(null);
+    loadedProfileUidRef.current = null;
   }, []);
 
   const value = useMemo<AuthContextValue>(

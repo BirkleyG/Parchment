@@ -3,6 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { useAuth } from "@/components/providers/AuthProvider";
+import { ADMIN_USERNAME } from "@/lib/adminConfig";
+
 const SCENE_NAV_ITEMS = [
   {
     href: "/desk",
@@ -24,14 +27,24 @@ const SCENE_NAV_ITEMS = [
   },
 ] as const;
 
+const ADMIN_NAV_ITEM = {
+  href: "/admin",
+  label: "Admin",
+  description: "Manage",
+  icon: "/design-assets/Seal.png",
+} as const;
+
 type SceneNavProps = {
   pathname: string;
 };
 
 export function SceneNav({ pathname }: SceneNavProps) {
+  const { profile } = useAuth();
+  const items = profile?.username === ADMIN_USERNAME ? [...SCENE_NAV_ITEMS, ADMIN_NAV_ITEM] : SCENE_NAV_ITEMS;
+
   return (
     <nav className="scene-nav" aria-label="Primary">
-      {SCENE_NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const isActive = pathname === item.href;
 
         return (

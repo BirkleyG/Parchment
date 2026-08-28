@@ -635,6 +635,88 @@ body::before {
   padding: 0.72rem;
 }
 
+/*
+ * The writing paper renders at a fixed intrinsic size (--desk-page-width x
+ * --desk-page-height) and is scaled visually via CSS transform to fit
+ * whatever space is available. transform doesn't affect layout, so the
+ * textarea's clientWidth/clientHeight — what the pagination math measures
+ * against — stay constant regardless of window size. That's what makes the
+ * number of characters that fit on a page objective: a wider or narrower
+ * browser window changes the on-screen scale, not how much text fits.
+ */
+.desk-page-viewport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.desk-page-scale-frame {
+  --desk-page-width: 760px;
+  --desk-page-height: 980px;
+  position: relative;
+  width: calc(var(--desk-page-width) * var(--page-scale, 1));
+  height: calc(var(--desk-page-height) * var(--page-scale, 1));
+  flex: none;
+}
+
+.desk-page-scale-frame .desk-paper {
+  width: var(--desk-page-width);
+  height: var(--desk-page-height);
+  transform: scale(var(--page-scale, 1));
+  transform-origin: top left;
+}
+
+/*
+ * Several older rules re-tune paper padding/font-size at viewport-width
+ * breakpoints (min-width: 1280px / 1600px) — a leftover from when the paper
+ * itself was fluid-sized. Now that it's a fixed canvas, those breakpoints
+ * would silently change how much text fits depending on browser width,
+ * undermining the objective-character-count goal. These selectors are more
+ * specific than the breakpoint rules, so they win regardless of viewport.
+ */
+.desk-page-scale-frame .desk-paper-body {
+  padding: 2.2rem 4.7rem 1rem 3.55rem;
+}
+
+.desk-page-scale-frame .desk-postmark {
+  top: 1.5rem;
+  right: 1.85rem;
+  width: 8.9rem;
+}
+
+.desk-page-scale-frame .desk-paper-sprig {
+  right: 4rem;
+  bottom: 3rem;
+  width: 6.9rem;
+}
+
+.desk-page-scale-frame .desk-letter-textarea {
+  font-size: 0.93rem;
+  line-height: 1.92;
+  padding-top: 3.8rem;
+  padding-right: 8.6rem;
+}
+
+.desk-page-scale-frame .desk-paper-toolbar {
+  margin-top: 0.35rem;
+  padding: 1rem 1.2rem 1.1rem;
+  font-size: 0.77rem;
+}
+
+.desk-page-scale-frame .desk-page-nav-button {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+.desk-page-scale-frame .desk-page-select {
+  min-width: 6.4rem;
+  padding: 0.32rem 1.65rem 0.32rem 0.55rem;
+}
+
 .paper-sheet {
   position: relative;
   border: 1px solid rgba(169, 139, 103, 0.18);
@@ -4441,6 +4523,14 @@ body::before {
   gap: 0.85rem;
 }
 
+.app-version-badge {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--color-text-soft);
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
 .app-profile {
   gap: 0.65rem;
 }
@@ -5369,19 +5459,28 @@ body::before {
   .mobile-page-stage {
     flex: 1;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     overflow: hidden;
     padding-bottom: 0.1rem;
   }
 
+  /*
+   * Mobile gets its own canonical page — sized to render close to 1:1 on an
+   * actual phone — rather than reusing the desktop canvas. Cramming the
+   * desktop-sized page onto a phone forced ~0.47x scale (~9px effective
+   * text). This is still the same fixed-canvas + transform-scale technique
+   * (see .desk-page-scale-frame in the desktop rules above), so the amount
+   * of text that fits a page stays objective across every phone size —
+   * it's just tuned to a size that's actually comfortable to read on one.
+   */
   .mobile-page-scale-frame {
-    --page-width: 760px;
-    --page-height: 980px;
+    --page-width: 420px;
+    --page-height: 560px;
     --page-scale: min(
-      calc((100vw - 0.7rem) / var(--page-width)),
-      calc((100dvh - 2.8rem) / var(--page-height)),
-      1
+      calc((100vw - 1.1rem) / var(--page-width)),
+      calc((100dvh - 3.6rem) / var(--page-height)),
+      1.2
     );
     position: relative;
     width: calc(var(--page-width) * var(--page-scale));
@@ -5390,8 +5489,8 @@ body::before {
 
   .mobile-editor-paper,
   .mailbox-read-paper {
-    width: var(--page-width, 760px);
-    height: var(--page-height, 980px);
+    width: var(--page-width, 420px);
+    height: var(--page-height, 560px);
     min-height: 0;
     transform: scale(var(--page-scale, 1));
     transform-origin: top left;
@@ -5399,42 +5498,43 @@ body::before {
 
   .mobile-editor-body,
   .mailbox-read-body {
-    min-height: 880px;
-    padding: 1.35rem 2.5rem 0.45rem 1.7rem;
+    min-height: 0;
+    flex: 1;
+    padding: 0.8rem 1.4rem 0.3rem 0.95rem;
   }
 
   .mobile-editor-textarea {
     min-height: 0;
     height: 100%;
-    padding-top: 1.75rem;
-    padding-right: 4.8rem;
-    font-size: 1.18rem;
-    line-height: 1.74;
-    letter-spacing: 0.004em;
+    padding-top: 1rem;
+    padding-right: 2.65rem;
+    font-size: 1.05rem;
+    line-height: 1.62;
+    letter-spacing: 0.005em;
     overflow: hidden;
   }
 
   .mailbox-read-textarea {
-    font-size: 1.18rem;
-    line-height: 1.74;
-    letter-spacing: 0.004em;
+    font-size: 1.05rem;
+    line-height: 1.62;
+    letter-spacing: 0.005em;
     overflow: hidden;
-    padding-top: 1.75rem;
-    padding-right: 4.8rem;
+    padding-top: 1rem;
+    padding-right: 2.65rem;
   }
 
   .mobile-editor-body .desk-postmark,
   .mailbox-read-body .desk-postmark {
-    top: 1rem;
-    right: 1.15rem;
-    width: 6.25rem;
+    top: 0.6rem;
+    right: 0.65rem;
+    width: 3.45rem;
   }
 
   .mobile-editor-body .desk-paper-sprig,
   .mailbox-read-body .desk-paper-sprig {
-    right: 2.1rem;
-    bottom: 1.65rem;
-    width: 4.35rem;
+    right: 1.15rem;
+    bottom: 0.95rem;
+    width: 2.4rem;
   }
 
   .scene-nav-description {
@@ -5487,20 +5587,30 @@ body::before {
     justify-content: flex-end;
   }
 
+  /*
+   * Sized for the 420px-wide mobile canvas above (was tuned for the old
+   * 760px one — those values no longer fit three columns in the toolbar).
+   */
+  .mobile-editor-paper .desk-paper-toolbar,
+  .mailbox-read-paper .desk-paper-toolbar {
+    grid-template-columns: 0.8fr 2.3fr 0.8fr;
+    padding: 0.55rem 0.5rem 0.6rem;
+    font-size: 0.68rem;
+  }
+
   .mobile-editor-paper .desk-page-nav-button,
   .mailbox-read-paper .desk-page-nav-button {
-    width: 3.6rem;
-    height: 3.6rem;
-    font-size: 1.45rem;
+    width: 2.15rem;
+    height: 2.15rem;
+    font-size: 0.95rem;
   }
 
   .mobile-editor-paper .desk-page-select,
   .mailbox-read-paper .desk-page-select {
-    min-width: 11rem;
-    min-height: 3.6rem;
-    font-size: 1.2rem;
-    padding-left: 0.95rem;
-    padding-right: 2.35rem;
+    min-width: 6.4rem;
+    min-height: 2.15rem;
+    font-size: 0.72rem;
+    padding: 0.3rem 1.35rem 0.3rem 0.5rem;
   }
 
   .mailbox-read-close {

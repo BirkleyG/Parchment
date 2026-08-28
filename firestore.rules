@@ -14,6 +14,16 @@ service cloud.firestore {
       return mode in ["fountainPen", "typewriter"];
     }
 
+    // Single hardcoded admin account, identified by username (this app has
+    // no real-email accounts — Firebase Auth uses a synthetic address). Used
+    // to let the admin console list/delete any account's data for test
+    // cleanup. The get() here is independent of the document being
+    // evaluated, so it doesn't block admin list queries across a collection.
+    function isAdmin() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == "birkleyg";
+    }
+
     match /users/{userId} {
       allow read: if true;
 
@@ -27,10 +37,10 @@ service cloud.firestore {
         && request.resource.data.username == resource.data.username
         && request.resource.data.createdAt == resource.data.createdAt;
 
-      allow delete: if isOwner(userId);
+      allow delete: if isOwner(userId) || isAdmin();
 
       match /bins/{binId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
     }
 
@@ -44,7 +54,7 @@ service cloud.firestore {
         && request.resource.data.username == username;
 
       allow update, delete: if isSignedIn()
-        && resource.data.uid == request.auth.uid;
+        && (resource.data.uid == request.auth.uid || isAdmin());
     }
 
     match /letters/{letterId} {
@@ -52,13 +62,18 @@ service cloud.firestore {
       // For invite-sent letters (status "sent" with inviteId), any signed-in
       // user can read — the invite link is the proof of access. The update
       // rules still enforce that only the invite claimant can claim.
-      allow read: if isSignedIn()
-        && (
-          resource.data.fromUid == request.auth.uid
-          || resource.data.toUid == request.auth.uid
-          || (
-            resource.data.inviteId is string
-            && resource.data.status == "sent"
+      // The isAdmin() branch is independent of resource.data, so it also
+      // permits the admin console's list-all-letters query.
+      allow read: if isAdmin()
+        || (
+          isSignedIn()
+          && (
+            resource.data.fromUid == request.auth.uid
+            || resource.data.toUid == request.auth.uid
+            || (
+              resource.data.inviteId is string
+              && resource.data.status == "sent"
+            )
           )
         );
 
@@ -115,7 +130,8 @@ service cloud.firestore {
 
       allow delete: if isSignedIn()
         && (resource.data.fromUid == request.auth.uid
-          || resource.data.toUid == request.auth.uid);
+          || resource.data.toUid == request.auth.uid
+          || isAdmin());
     }
 
     match /invites/{inviteId} {
@@ -136,7 +152,7 @@ service cloud.firestore {
         && request.resource.data.status == "replaced"
         && get(/databases/$(database)/documents/letters/$(resource.data.letterId)).data.fromUid == request.auth.uid;
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /{document=**} {
