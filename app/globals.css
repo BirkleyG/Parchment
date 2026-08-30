@@ -648,85 +648,42 @@ body::before {
 }
 
 /*
- * The writing paper renders at a fixed intrinsic size (--desk-page-width x
- * --desk-page-height) and is scaled visually via CSS transform to fit
- * whatever space is available. transform doesn't affect layout, so the
- * textarea's clientWidth/clientHeight — what the pagination math measures
- * against — stay constant regardless of window size. That's what makes the
- * number of characters that fit on a page objective: a wider or narrower
- * browser window changes the on-screen scale, not how much text fits.
+ * The writing paper fills whatever space its panel has — a normal
+ * responsive element, not a fixed canvas scaled to fit. Pagination is
+ * character-count based (see CHARACTERS_PER_PAGE in desk/page.tsx), so how
+ * much text fits a page is still constant everywhere; only how big the
+ * letters render on screen changes with the available space.
  */
 .desk-page-viewport {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   width: 100%;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
 }
 
-.desk-page-scale-frame {
-  --desk-page-width: 760px;
-  --desk-page-height: 860px;
-  position: relative;
-  width: calc(var(--desk-page-width) * var(--page-scale, 1));
-  height: calc(var(--desk-page-height) * var(--page-scale, 1));
-  flex: none;
+.desk-page-viewport .desk-paper,
+.focus-mode-viewport .desk-paper {
+  width: 100%;
+  max-width: 900px;
 }
 
-.desk-page-scale-frame .desk-paper {
-  width: var(--desk-page-width);
-  height: var(--desk-page-height);
-  transform: scale(var(--page-scale, 1));
-  transform-origin: top left;
+.focus-mode-viewport {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
 }
 
-/*
- * Several older rules re-tune paper padding/font-size at viewport-width
- * breakpoints (min-width: 1280px / 1600px) — a leftover from when the paper
- * itself was fluid-sized. Now that it's a fixed canvas, those breakpoints
- * would silently change how much text fits depending on browser width,
- * undermining the objective-character-count goal. These selectors are more
- * specific than the breakpoint rules, so they win regardless of viewport.
- */
-.desk-page-scale-frame .desk-paper-body {
-  padding: 2.2rem 4.7rem 1rem 3.55rem;
+.focus-mode-viewport .desk-paper {
+  max-width: 980px;
 }
 
-.desk-page-scale-frame .desk-postmark {
-  top: 1.5rem;
-  right: 1.85rem;
-  width: 8.9rem;
-}
-
-.desk-page-scale-frame .desk-paper-sprig {
-  right: 4rem;
-  bottom: 3rem;
-  width: 6.9rem;
-}
-
-.desk-page-scale-frame .desk-letter-textarea {
-  font-size: 0.93rem;
-  line-height: 1.92;
-  padding-top: 3.8rem;
-  padding-right: 8.6rem;
-}
-
-.desk-page-scale-frame .desk-paper-toolbar {
-  margin-top: 0.35rem;
-  padding: 1rem 1.2rem 1.1rem;
-  font-size: 0.77rem;
-}
-
-.desk-page-scale-frame .desk-page-nav-button {
-  width: 1.7rem;
-  height: 1.7rem;
-}
-
-.desk-page-scale-frame .desk-page-select {
-  min-width: 6.4rem;
-  padding: 0.32rem 1.65rem 0.32rem 0.55rem;
+.focus-mode-viewport .desk-letter-textarea {
+  font-size: clamp(1.2rem, 0.95rem + 0.7vw, 1.55rem);
+  line-height: 1.9;
 }
 
 .paper-sheet {
@@ -774,7 +731,7 @@ body::before {
   position: relative;
   flex: 1;
   min-height: 0;
-  padding: 2.2rem 4.7rem 1rem 3.55rem;
+  padding: 1.6rem 1.8rem 0.5rem 1.8rem;
 }
 
 .paper-corner {
@@ -819,18 +776,18 @@ body::before {
 
 .desk-postmark {
   position: absolute;
-  top: 1.5rem;
-  right: 1.85rem;
-  width: 8.9rem;
+  top: 1.1rem;
+  right: 1.3rem;
+  width: 5.5rem;
   height: auto;
   opacity: 0.9;
 }
 
 .desk-paper-sprig {
   position: absolute;
-  right: 4rem;
-  bottom: 3rem;
-  width: 6.9rem;
+  right: 1.8rem;
+  bottom: 1.5rem;
+  width: 4.2rem;
   height: auto;
   opacity: 0.72;
   pointer-events: none;
@@ -913,12 +870,12 @@ body::before {
 }
 
 .desk-letter-textarea {
-  line-height: 1.92;
-  font-size: 0.93rem;
-  letter-spacing: 0.01em;
+  line-height: 1.85;
+  font-size: clamp(1rem, 0.85rem + 0.4vw, 1.15rem);
+  letter-spacing: 0.008em;
   font-family: "Source Serif 4", "Georgia", serif;
-  padding-top: 3.8rem;
-  padding-right: 8.6rem;
+  padding-top: 2.6rem;
+  padding-right: 5.5rem;
   overflow: hidden;
 }
 
@@ -2940,26 +2897,26 @@ body::before {
   }
 
   .desk-paper-body {
-    padding: 1.8rem 4.1rem 0.6rem 3rem;
+    padding: 1.8rem 2.2rem 0.6rem 2rem;
   }
 
   .desk-postmark {
-    top: 1.1rem;
-    right: 1.45rem;
-    width: 7.6rem;
+    top: 1.3rem;
+    right: 1.6rem;
+    width: 6.5rem;
   }
 
   .desk-paper-sprig {
-    right: 3.2rem;
-    bottom: 2.35rem;
-    width: 5.8rem;
+    right: 2.2rem;
+    bottom: 1.8rem;
+    width: 5rem;
   }
 
   .desk-letter-textarea {
-    font-size: 0.88rem;
-    line-height: 1.78;
-    padding-top: 3.15rem;
-    padding-right: 7.2rem;
+    font-size: clamp(1.05rem, 0.85rem + 0.55vw, 1.3rem);
+    line-height: 1.9;
+    padding-top: 3rem;
+    padding-right: 6.5rem;
   }
 
   .desk-paper-toolbar {
@@ -4441,7 +4398,7 @@ body::before {
   }
 
   .desk-paper-body {
-    padding: 2.3rem 4.9rem 0.7rem 3.7rem;
+    padding: 2.1rem 2.6rem 0.8rem 2.3rem;
   }
 }
 

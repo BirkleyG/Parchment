@@ -17,11 +17,13 @@ import { getLastDraftId, setLastDraftId } from "@/lib/storage";
 import type { Letter, SendDraftPayload } from "@/lib/types";
 
 const AUTOSAVE_DELAY_MS = 800;
-const DESK_PAGE_WIDTH = 760;
-const DESK_PAGE_HEIGHT = 860;
-const MIN_PAGE_SCALE = 0.5;
-const MAX_PAGE_SCALE = 1.55;
-const FOCUS_MAX_PAGE_SCALE = 2.4;
+// A page break is a fixed character count, not a pixel measurement — so the
+// same letter has the same page breaks on a phone, a laptop, or a monitor,
+// regardless of font size or window size. This also means the textarea
+// itself can just be a normal responsive element that fills whatever space
+// it's given, instead of a fixed-size canvas that has to be scaled down to
+// fit (which was fighting against making it feel spacious).
+const CHARACTERS_PER_PAGE = 1400;
 
 function normalizeDraft(letter: Letter): Letter {
   const pages = Array.isArray(letter.pages) && letter.pages.length > 0 ? letter.pages : [letter.body ?? ""];
@@ -78,12 +80,6 @@ export default function DeskPage() {
     fittedText: string;
     overflowText: string;
   } | null>(null);
-  const letterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const measureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const mobileLetterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const mobileMeasureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const pageViewportRef = useRef<HTMLDivElement | null>(null);
-  const pageScaleFrameRef = useRef<HTMLDivElement | null>(null);
   const handledComposeParamRef = useRef<string | null>(null);
   const handledOpenNewParamRef = useRef<string | null>(null);
 
@@ -120,39 +116,6 @@ export default function DeskPage() {
   useEffect(() => {
     setActivePageIndex(0);
   }, [activeDraftId]);
-
-  // The writing paper has a fixed intrinsic size (see .desk-page-scale-frame
-  // in globals.css) and is visually scaled to fit whatever space this panel
-  // has. Because the scale is a CSS transform, it never changes the
-  // textarea's actual layout size, so how much text fits on a page stays
-  // the same no matter how wide or narrow the window is — only the on-screen
-  // size of the text changes.
-  useEffect(() => {
-    const viewport = pageViewportRef.current;
-    const frame = pageScaleFrameRef.current;
-    if (!viewport || !frame) {
-      return;
-    }
-
-    const applyScale = () => {
-      const availableWidth = viewport.clientWidth;
-      const availableHeight = viewport.clientHeight;
-      if (availableWidth <= 0 || availableHeight <= 0) {
-        return;
-      }
-
-      const fitScale = Math.min(availableWidth / DESK_PAGE_WIDTH, availableHeight / DESK_PAGE_HEIGHT);
-      const maxScale = focusMode ? FOCUS_MAX_PAGE_SCALE : MAX_PAGE_SCALE;
-      const nextScale = Math.min(maxScale, Math.max(MIN_PAGE_SCALE, fitScale));
-      frame.style.setProperty("--page-scale", String(nextScale));
-    };
-
-    applyScale();
-
-    const observer = new ResizeObserver(applyScale);
-    observer.observe(viewport);
-    return () => observer.disconnect();
-  }, [activeDraft, focusMode]);
 
   useEffect(() => {
     setActivePageIndex((current) => {
@@ -351,55 +314,29 @@ export default function DeskPage() {
     setNotice("Draft removed");
   }
 
-  function getFittedText(
-    text: string,
-    textarea = letterTextareaRef.current,
-    measure = measureTextareaRef.current,
-  ) {
-
-    if (!textarea || !measure) {
+  function getFittedText(text: string) {
+    if (text.length <= CHARACTERS_PER_PAGE) {
       return text;
     }
 
-    measure.style.width = `${textarea.clientWidth}px`;
-    measure.style.height = `${textarea.clientHeight}px`;
-    measure.value = text;
-
-    if (measure.scrollHeight <= measure.clientHeight) {
-      return text;
+    let cut = CHARACTERS_PER_PAGE;
+    while (cut > 0 && !/\s/.test(text[cut])) {
+      cut -= 1;
+    }
+    if (cut === 0) {
+      cut = CHARACTERS_PER_PAGE;
     }
 
-    let low = 0;
-    let high = text.length;
-    let best = "";
-
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      const candidate = text.slice(0, mid);
-      measure.value = candidate;
-
-      if (measure.scrollHeight <= measure.clientHeight) {
-        best = candidate;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-
-    return best;
+    return text.slice(0, cut);
   }
 
-  function handlePageChange(
-    nextValue: string,
-    textarea = letterTextareaRef.current,
-    measure = measureTextareaRef.current,
-  ) {
+  function handlePageChange(nextValue: string) {
     if (!activeDraft) {
       return;
     }
 
     const currentPages = [...(activeDraft.pages ?? [activeDraft.body ?? ""])];
-    const fittedText = getFittedText(nextValue, textarea, measure);
+    const fittedText = getFittedText(nextValue);
 
     if (fittedText === nextValue) {
       currentPages[activePageIndex] = nextValue;
@@ -455,88 +392,78 @@ export default function DeskPage() {
   const deliveryWindow = draftDeliveryText(profile?.settings.outgoingDelayDays ?? 1);
 
   const paperNode = activeDraft ? (
-    <div className="desk-page-scale-frame" ref={pageScaleFrameRef}>
-      <div className="paper-sheet desk-paper">
-        <span className="paper-corner paper-corner-tl" />
-        <span className="paper-corner paper-corner-tr" />
-        <span className="paper-corner paper-corner-bl" />
-        <span className="paper-corner paper-corner-br" />
+    <div className="paper-sheet desk-paper">
+      <span className="paper-corner paper-corner-tl" />
+      <span className="paper-corner paper-corner-tr" />
+      <span className="paper-corner paper-corner-bl" />
+      <span className="paper-corner paper-corner-br" />
 
-        <div className="desk-paper-body">
-          <Image
-            src="/design-assets/Stamp.png"
-            alt=""
-            width={200}
-            height={140}
-            className="desk-postmark"
-          />
+      <div className="desk-paper-body">
+        <Image
+          src="/design-assets/Stamp.png"
+          alt=""
+          width={200}
+          height={140}
+          className="desk-postmark"
+        />
 
-          <textarea
-            ref={letterTextareaRef}
-            value={activePageValue}
-            onChange={(event) => handlePageChange(event.target.value)}
-            className="letter-textarea desk-letter-textarea"
-            placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
-            spellCheck={false}
-          />
-          <textarea
-            ref={measureTextareaRef}
-            tabIndex={-1}
-            aria-hidden="true"
-            className="letter-textarea desk-letter-textarea desk-measure-textarea"
-            readOnly
-          />
+        <textarea
+          value={activePageValue}
+          onChange={(event) => handlePageChange(event.target.value)}
+          className="letter-textarea desk-letter-textarea"
+          placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
+          spellCheck={false}
+        />
 
-          <Image
-            src="/design-assets/Leaf 6.png"
-            alt=""
-            width={170}
-            height={170}
-            className="desk-paper-sprig"
-          />
+        <Image
+          src="/design-assets/Leaf 6.png"
+          alt=""
+          width={170}
+          height={170}
+          className="desk-paper-sprig"
+        />
+      </div>
+
+      <div className="desk-paper-toolbar">
+        <div className="desk-toolbar-item">
+          <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+          <span>{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
         </div>
-
-        <div className="desk-paper-toolbar">
-          <div className="desk-toolbar-item">
-            <Image src="/design-assets/Simple Feather.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
-            <span>{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
-          </div>
-          <div className="desk-toolbar-item desk-toolbar-item-centered">
-            <button
-              type="button"
-              className="desk-page-nav-button"
-              onClick={() => setActivePageIndex((current) => Math.max(0, current - 1))}
-              disabled={activePageIndex === 0}
-              aria-label="Previous page"
-            >
-              {"<"}
-            </button>
-            <select
-              value={activePageIndex}
-              onChange={(event) => setActivePageIndex(Number(event.target.value))}
-              className="desk-page-select"
-              aria-label="Selected page"
-            >
-              {pages.map((_, index) => (
-                <option key={`${activeDraft?.id ?? "draft"}-page-${index + 1}`} value={index}>
-                  {`Page ${index + 1} of ${pageCount}`}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="desk-page-nav-button"
-              onClick={() => setActivePageIndex((current) => Math.min(pageCount - 1, current + 1))}
-              disabled={activePageIndex >= pageCount - 1}
-              aria-label="Next page"
-            >
-              {">"}
-            </button>
-          </div>
-          <div className="desk-toolbar-item desk-toolbar-item-end">
-            <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
-            <span>Last edited {formatDateTime(activeDraft.updatedAt ?? activeDraft.createdAt)}</span>
-          </div>
+        <div className="desk-toolbar-item desk-toolbar-item-centered">
+          <button
+            type="button"
+            className="desk-page-nav-button"
+            onClick={() => setActivePageIndex((current) => Math.max(0, current - 1))}
+            disabled={activePageIndex === 0}
+            aria-label="Previous page"
+          >
+            {"<"}
+          </button>
+          <select
+            value={activePageIndex}
+            onChange={(event) => setActivePageIndex(Number(event.target.value))}
+            className="desk-page-select"
+            aria-label="Selected page"
+          >
+            {pages.map((_, index) => (
+              <option key={`${activeDraft?.id ?? "draft"}-page-${index + 1}`} value={index}>
+                {`Page ${index + 1} of ${pageCount}`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="desk-page-nav-button"
+            onClick={() => setActivePageIndex((current) => Math.min(pageCount - 1, current + 1))}
+            disabled={activePageIndex >= pageCount - 1}
+            aria-label="Next page"
+          >
+            {">"}
+          </button>
+        </div>
+        <div className="desk-toolbar-item desk-toolbar-item-end">
+          <Image src="/design-assets/Parchment Stamp 2.png" alt="" width={18} height={18} className="h-4 w-4 object-contain" />
+          <span>Last edited {formatDateTime(activeDraft.updatedAt ?? activeDraft.createdAt)}</span>
         </div>
       </div>
     </div>
@@ -724,7 +651,7 @@ export default function DeskPage() {
               focusMode ? (
                 <div className="desk-page-viewport-placeholder" aria-hidden="true" />
               ) : (
-                <div className="desk-page-viewport" ref={pageViewportRef}>
+                <div className="desk-page-viewport">
                   {paperNode}
                 </div>
               )
@@ -876,7 +803,7 @@ export default function DeskPage() {
           </button>
           <span className="focus-mode-bar-meta">{notice ?? (isAutosaveDirty ? "Saving..." : "Autosaved just now")}</span>
         </div>
-        <div className="desk-page-viewport focus-mode-viewport" ref={pageViewportRef}>
+        <div className="focus-mode-viewport">
           {paperNode}
         </div>
       </ParchmentDialog>
@@ -914,19 +841,11 @@ export default function DeskPage() {
                     />
 
                     <textarea
-                      ref={mobileLetterTextareaRef}
                       value={activePageValue}
-                      onChange={(event) => handlePageChange(event.target.value, mobileLetterTextareaRef.current, mobileMeasureTextareaRef.current)}
+                      onChange={(event) => handlePageChange(event.target.value)}
                       className="letter-textarea desk-letter-textarea mobile-editor-textarea"
                       placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
                       spellCheck={false}
-                    />
-                    <textarea
-                      ref={mobileMeasureTextareaRef}
-                      tabIndex={-1}
-                      aria-hidden="true"
-                      className="letter-textarea desk-letter-textarea desk-measure-textarea mobile-editor-textarea"
-                      readOnly
                     />
 
                     <Image
