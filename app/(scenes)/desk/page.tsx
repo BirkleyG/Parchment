@@ -17,13 +17,9 @@ import { getLastDraftId, setLastDraftId } from "@/lib/storage";
 import type { Letter, SendDraftPayload } from "@/lib/types";
 
 const AUTOSAVE_DELAY_MS = 800;
-// A page break is a fixed character count, not a pixel measurement — so the
-// same letter has the same page breaks on a phone, a laptop, or a monitor,
-// regardless of font size or window size. This also means the textarea
-// itself can just be a normal responsive element that fills whatever space
-// it's given, instead of a fixed-size canvas that has to be scaled down to
-// fit (which was fighting against making it feel spacious).
-const CHARACTERS_PER_PAGE = 1400;
+// A hard character cap is just a safety bound for the search below, not the
+// actual page-break rule — see getFittedText.
+const MAX_CHARACTERS_PER_PAGE = 20000;
 
 function normalizeDraft(letter: Letter): Letter {
   const pages = Array.isArray(letter.pages) && letter.pages.length > 0 ? letter.pages : [letter.body ?? ""];
@@ -80,6 +76,10 @@ export default function DeskPage() {
     fittedText: string;
     overflowText: string;
   } | null>(null);
+  const letterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const measureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mobileLetterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mobileMeasureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const handledComposeParamRef = useRef<string | null>(null);
   const handledOpenNewParamRef = useRef<string | null>(null);
 
@@ -314,54 +314,107 @@ export default function DeskPage() {
     setNotice("Draft removed");
   }
 
-  function getFittedText(text: string) {
-    if (text.length <= CHARACTERS_PER_PAGE) {
+  // Whether text fits a page is a question about the actual rendered box —
+  // character count alone can't know that, because it has no idea how many
+  // visual lines that text wraps into (variable-width glyphs, word-wrap,
+  // and explicit "\n"s all affect that differently). So we measure it for
+  // real: mirror the text into a same-sized hidden textarea and binary
+  // search for the longest prefix whose rendered height still fits.
+  function getFittedText(
+    text: string,
+    textarea = letterTextareaRef.current,
+    measure = measureTextareaRef.current,
+  ) {
+    if (!textarea || !measure) {
       return text;
     }
 
-    let cut = CHARACTERS_PER_PAGE;
-    while (cut > 0 && !/\s/.test(text[cut])) {
-      cut -= 1;
-    }
-    if (cut === 0) {
-      cut = CHARACTERS_PER_PAGE;
+    measure.style.width = `${textarea.clientWidth}px`;
+    measure.style.height = `${textarea.clientHeight}px`;
+    measure.value = text;
+
+    if (measure.scrollHeight <= measure.clientHeight) {
+      return text;
     }
 
-    return text.slice(0, cut);
+    let low = 0;
+    let high = Math.min(text.length, MAX_CHARACTERS_PER_PAGE);
+    let best = "";
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = text.slice(0, mid);
+      measure.value = candidate;
+
+      if (measure.scrollHeight <= measure.clientHeight) {
+        best = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return best;
   }
 
-  // Splits arbitrarily long text into as many CHARACTERS_PER_PAGE-sized
-  // (word-boundary-aware) chunks as it takes to hold all of it — a paste
-  // that's five pages long produces five pages, not one oversized page
-  // that silently exceeds the limit.
-  function splitTextIntoPages(text: string): string[] {
+  // Splits arbitrarily long text into as many pages as it takes to actually
+  // fit all of it on screen — a paste that's five pages long produces five
+  // pages, not one oversized page that silently scrolls past the paper.
+  function splitTextIntoPages(
+    text: string,
+    textarea = letterTextareaRef.current,
+    measure = measureTextareaRef.current,
+  ): string[] {
     const result: string[] = [];
     let remaining = text;
 
-    while (remaining.length > CHARACTERS_PER_PAGE) {
-      const fitted = getFittedText(remaining);
-      result.push(fitted);
-      remaining = remaining.slice(fitted.length).replace(/^\n+/, "");
+    while (true) {
+      // Trailing pages can end up empty once leading newlines are trimmed
+      // off a split point — don't add a blank page nobody asked for, unless
+      // it's the only page there is.
+      if (remaining.length === 0) {
+        if (result.length === 0) {
+          result.push("");
+        }
+        break;
+      }
+
+      const fitted = getFittedText(remaining, textarea, measure);
+      if (fitted === remaining) {
+        result.push(remaining);
+        break;
+      }
+
+      // If even a single character doesn't fit (e.g. the box is mid-layout
+      // and briefly has no height), force forward progress instead of
+      // spinning forever on the same text.
+      const safeFitted = fitted.length > 0 ? fitted : remaining.slice(0, 1);
+      result.push(safeFitted);
+      remaining = remaining.slice(safeFitted.length).replace(/^\n+/, "");
     }
 
-    result.push(remaining);
     return result;
   }
 
-  function handlePageChange(nextValue: string) {
+  function handlePageChange(
+    nextValue: string,
+    textarea = letterTextareaRef.current,
+    measure = measureTextareaRef.current,
+  ) {
     if (!activeDraft) {
       return;
     }
 
     const currentPages = [...(activeDraft.pages ?? [activeDraft.body ?? ""])];
+    const fittedText = getFittedText(nextValue, textarea, measure);
 
-    if (nextValue.length <= CHARACTERS_PER_PAGE) {
+    if (fittedText === nextValue) {
       currentPages[activePageIndex] = nextValue;
       patchDraftPages(currentPages);
       return;
     }
 
-    const splitPages = splitTextIntoPages(nextValue);
+    const splitPages = splitTextIntoPages(nextValue, textarea, measure);
     const [firstPage, ...restPages] = splitPages;
 
     if (restPages.length === 1) {
@@ -437,11 +490,19 @@ export default function DeskPage() {
         />
 
         <textarea
+          ref={letterTextareaRef}
           value={activePageValue}
           onChange={(event) => handlePageChange(event.target.value)}
           className="letter-textarea desk-letter-textarea"
           placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
           spellCheck={false}
+        />
+        <textarea
+          ref={measureTextareaRef}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="letter-textarea desk-letter-textarea desk-measure-textarea"
+          readOnly
         />
 
         <Image
@@ -870,11 +931,19 @@ export default function DeskPage() {
                     />
 
                     <textarea
+                      ref={mobileLetterTextareaRef}
                       value={activePageValue}
-                      onChange={(event) => handlePageChange(event.target.value)}
+                      onChange={(event) => handlePageChange(event.target.value, mobileLetterTextareaRef.current, mobileMeasureTextareaRef.current)}
                       className="letter-textarea desk-letter-textarea mobile-editor-textarea"
                       placeholder={"Dear friend,\n\nI hope this letter finds you well. I have been working for quite some time on writing out the words here, and I have never been truly able to find what I was hoping to say with mere words.\n\nBut hopefully this does justice to what I am imagining this could be. Hopefully I can write with the elegance and wisdom of one with knowledge, and the kindness of a friend.\n\nHopefully these words do not sting, but rather encourage. Hopefully they bring tidings of great joy, rather than sorrow. For it is joy that I search for.\n\nWith care,\nP."}
                       spellCheck={false}
+                    />
+                    <textarea
+                      ref={mobileMeasureTextareaRef}
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      className="letter-textarea desk-letter-textarea desk-measure-textarea mobile-editor-textarea"
+                      readOnly
                     />
 
                     <Image
