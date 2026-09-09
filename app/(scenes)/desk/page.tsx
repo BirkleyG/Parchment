@@ -330,31 +330,60 @@ export default function DeskPage() {
     return text.slice(0, cut);
   }
 
+  // Splits arbitrarily long text into as many CHARACTERS_PER_PAGE-sized
+  // (word-boundary-aware) chunks as it takes to hold all of it — a paste
+  // that's five pages long produces five pages, not one oversized page
+  // that silently exceeds the limit.
+  function splitTextIntoPages(text: string): string[] {
+    const result: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > CHARACTERS_PER_PAGE) {
+      const fitted = getFittedText(remaining);
+      result.push(fitted);
+      remaining = remaining.slice(fitted.length).replace(/^\n+/, "");
+    }
+
+    result.push(remaining);
+    return result;
+  }
+
   function handlePageChange(nextValue: string) {
     if (!activeDraft) {
       return;
     }
 
     const currentPages = [...(activeDraft.pages ?? [activeDraft.body ?? ""])];
-    const fittedText = getFittedText(nextValue);
 
-    if (fittedText === nextValue) {
+    if (nextValue.length <= CHARACTERS_PER_PAGE) {
       currentPages[activePageIndex] = nextValue;
       patchDraftPages(currentPages);
       return;
     }
 
-    currentPages[activePageIndex] = fittedText;
-    patchDraftPages(currentPages);
+    const splitPages = splitTextIntoPages(nextValue);
+    const [firstPage, ...restPages] = splitPages;
 
-    const overflowText = nextValue.slice(fittedText.length);
-    if (overflowText.length > 0) {
+    if (restPages.length === 1) {
+      // A single page's worth of overflow from normal typing: ask before
+      // committing to a new page, same as always.
+      currentPages[activePageIndex] = firstPage;
+      patchDraftPages(currentPages);
       setPageOverflowState({
         pageIndex: activePageIndex,
-        fittedText,
-        overflowText,
+        fittedText: firstPage,
+        overflowText: restPages[0],
       });
+      return;
     }
+
+    // A paste (or similar) that spans several pages at once: no point
+    // making the writer click "Add page" N times, so create all of them
+    // immediately and let them know how many landed.
+    currentPages.splice(activePageIndex, 1, ...splitPages);
+    patchDraftPages(currentPages);
+    setActivePageIndex(activePageIndex + splitPages.length - 1);
+    setNotice(`Added ${restPages.length} new pages`);
   }
 
   function handleCreateNextPage() {
