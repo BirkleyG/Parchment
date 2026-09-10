@@ -141,15 +141,21 @@ export default function DeskPage() {
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
 
-  // Autosave is debounced so continuous typing doesn't write on every
-  // keystroke, but a debounce that can be silently cancelled is a data-loss
-  // trap: switching drafts, sending, burning, or navigating away all change
-  // `activeDraft` (or unmount the page), which runs this effect's cleanup
-  // *before* the timer would have fired. So the cleanup itself flushes the
-  // pending save instead of just cancelling it — every one of those
-  // transitions ends up saving immediately rather than dropping the edit.
+  // A save in flight captures a *snapshot* of the draft when it starts. If
+  // it resolves after the user has kept typing, blindly overwriting local
+  // state with that snapshot would erase whatever they typed in the
+  // meantime — the exact bug this ref exists to prevent. Only `updatedAt`
+  // ever gets written back locally (see the .then() below); the snapshot's
+  // content is never used to overwrite current state.
+  const pendingSaveRef = useRef<{ draftId: string; flush: () => void } | null>(null);
+
+  // The actual debounce: reset on every keystroke (activeDraft gets a new
+  // identity on every edit), only fires 800ms after typing stops. Cleanup
+  // here only cancels the timer — it must NOT flush, or every keystroke
+  // would trigger an immediate save racing the next one.
   useEffect(() => {
     if (!activeDraft || !isAutosaveDirty) {
+      pendingSaveRef.current = null;
       return;
     }
 
@@ -161,21 +167,38 @@ export default function DeskPage() {
         return;
       }
       flushed = true;
+      pendingSaveRef.current = null;
       void saveDraft(draftToSave).then((rawSaved) => {
         const savedDraft = normalizeDraft(rawSaved);
-        setDrafts((current) => current.map((entry) => (entry.id === savedDraft.id ? savedDraft : entry)));
+        // Merge only the timestamp. Local state may have moved past this
+        // snapshot already (more typing while the save was in flight) —
+        // overwriting pages/body/title here would silently revert it.
+        setDrafts((current) =>
+          current.map((entry) => (entry.id === savedDraft.id ? { ...entry, updatedAt: savedDraft.updatedAt } : entry)),
+        );
         setAutosaveDirty(false);
         setNotice("Autosaved just now");
       });
     };
 
+    pendingSaveRef.current = { draftId: draftToSave.id, flush };
     const timeoutId = window.setTimeout(flush, AUTOSAVE_DELAY_MS);
 
     return () => {
       window.clearTimeout(timeoutId);
-      flush();
     };
   }, [activeDraft, isAutosaveDirty]);
+
+  // Flush whenever we're actually leaving the draft being edited — switching
+  // to a different one, or navigating away entirely. Keyed on activeDraftId
+  // (stable across edits to the same draft) rather than activeDraft (a new
+  // object on every keystroke), so this only fires on a genuine transition,
+  // not on every character typed.
+  useEffect(() => {
+    return () => {
+      pendingSaveRef.current?.flush();
+    };
+  }, [activeDraftId]);
 
   // A hard reload or tab close can't wait for React's cleanup to run, so
   // there's no way to guarantee the pending save finishes. Warn instead —
