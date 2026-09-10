@@ -141,20 +141,59 @@ export default function DeskPage() {
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
 
+  // Autosave is debounced so continuous typing doesn't write on every
+  // keystroke, but a debounce that can be silently cancelled is a data-loss
+  // trap: switching drafts, sending, burning, or navigating away all change
+  // `activeDraft` (or unmount the page), which runs this effect's cleanup
+  // *before* the timer would have fired. So the cleanup itself flushes the
+  // pending save instead of just cancelling it — every one of those
+  // transitions ends up saving immediately rather than dropping the edit.
   useEffect(() => {
     if (!activeDraft || !isAutosaveDirty) {
       return;
     }
 
-    const timeoutId = window.setTimeout(async () => {
-      const savedDraft = normalizeDraft(await saveDraft(activeDraft));
-      setDrafts((current) => current.map((entry) => (entry.id === savedDraft.id ? savedDraft : entry)));
-      setAutosaveDirty(false);
-      setNotice("Autosaved just now");
-    }, AUTOSAVE_DELAY_MS);
+    const draftToSave = activeDraft;
+    let flushed = false;
 
-    return () => window.clearTimeout(timeoutId);
+    const flush = () => {
+      if (flushed) {
+        return;
+      }
+      flushed = true;
+      void saveDraft(draftToSave).then((rawSaved) => {
+        const savedDraft = normalizeDraft(rawSaved);
+        setDrafts((current) => current.map((entry) => (entry.id === savedDraft.id ? savedDraft : entry)));
+        setAutosaveDirty(false);
+        setNotice("Autosaved just now");
+      });
+    };
+
+    const timeoutId = window.setTimeout(flush, AUTOSAVE_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      flush();
+    };
   }, [activeDraft, isAutosaveDirty]);
+
+  // A hard reload or tab close can't wait for React's cleanup to run, so
+  // there's no way to guarantee the pending save finishes. Warn instead —
+  // this gives the user the chance to stay and let the debounce complete
+  // rather than silently losing the last moment of typing.
+  useEffect(() => {
+    if (!isAutosaveDirty) {
+      return;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isAutosaveDirty]);
 
   function selectDraft(draftId: string) {
     setActiveDraftId(draftId);
