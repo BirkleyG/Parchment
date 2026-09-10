@@ -390,7 +390,15 @@ export default function DeskPage() {
       // spinning forever on the same text.
       const safeFitted = fitted.length > 0 ? fitted : remaining.slice(0, 1);
       result.push(safeFitted);
-      remaining = remaining.slice(safeFitted.length).replace(/^\n+/, "");
+
+      // Trim a leading blank line off the next page — but only when there's
+      // real content after it. If the overflow is *just* a newline (the
+      // classic "pressing Enter at the bottom of a full page" case), trimming
+      // it away entirely would erase the overflow before it ever became a
+      // page, which is exactly the bug where Enter silently did nothing.
+      const rest = remaining.slice(safeFitted.length);
+      const trimmedRest = rest.replace(/^\n+/, "");
+      remaining = trimmedRest.length > 0 ? trimmedRest : rest;
     }
 
     return result;
