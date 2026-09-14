@@ -42,6 +42,27 @@ export function getFittedText(
     }
   }
 
+  // The binary search above is purely height-based and doesn't know what a
+  // word is, so its longest-fitting prefix can land mid-word. When it does,
+  // back the cut up to the last word boundary so the split word moves to
+  // the next page whole, rather than being torn in two. Skip this when
+  // `best` is the *whole* remaining text (nothing is being cut) or when
+  // there's no boundary to back up to at all (one unbroken run of
+  // non-whitespace longer than a page) — either way there's nothing better
+  // to do than the character-level cut.
+  if (best.length > 0 && best.length < text.length) {
+    const lastChar = best[best.length - 1];
+    const nextChar = text[best.length];
+    const isMidWord = !/\s/.test(lastChar) && !/\s/.test(nextChar);
+
+    if (isMidWord) {
+      const trailingWordStart = /\S*$/.exec(best)!.index;
+      if (trailingWordStart > 0) {
+        best = best.slice(0, trailingWordStart);
+      }
+    }
+  }
+
   return best;
 }
 
@@ -113,7 +134,16 @@ export function reflowPages(
     return null;
   }
 
-  const fullText = pages.join("\n\n").trim();
+  // Plain concatenation, not "\n\n".join() — a page boundary is usually in
+  // the middle of a paragraph, not between two of them, so joining with an
+  // inserted blank line fabricates whitespace that was never actually
+  // there. That fabricated whitespace then becomes part of the "current"
+  // pages the *next* time this runs (e.g. the next resize event during a
+  // drag), and each pass adds more — which is exactly how one page turns
+  // into dozens of one-word fragments after a few resizes. Concatenating
+  // the pages back exactly as split (each one a contiguous slice of the
+  // original text) reconstructs the real text losslessly instead.
+  const fullText = pages.join("").trim();
   const nextPages = splitTextIntoPages(fullText, textarea, measure);
   const unchanged =
     nextPages.length === pages.length && nextPages.every((page, index) => page === pages[index]);
