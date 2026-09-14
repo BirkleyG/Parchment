@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { ConfirmBurnModal } from "@/components/ConfirmBurnModal";
@@ -17,6 +17,7 @@ import {
 } from "@/lib/binService";
 import { formatLetterArrival } from "@/lib/dateUtils";
 import { burnReceivedLetter, listMailboxLetters, moveLetterToBin, openLetter } from "@/lib/letterService";
+import { reflowPages } from "@/lib/pagination";
 import type { Letter, MailBin } from "@/lib/types";
 
 function letterPages(letter: Letter | null): string[] {
@@ -50,6 +51,15 @@ export default function MailboxPage() {
   const [burnModalOpen, setBurnModalOpen] = useState(false);
   const [readModalOpen, setReadModalOpen] = useState(false);
   const [readPageIndex, setReadPageIndex] = useState(0);
+  // The sender's `pages` split was only ever validated against whatever box
+  // was on their screen when they wrote it — a letter written wide on
+  // desktop can silently overflow a phone's much smaller reading canvas.
+  // This holds a re-paginated-for-this-box version, computed locally on
+  // open/resize; it's never written back (it isn't this reader's letter to
+  // repaginate in Firestore).
+  const [readDisplayPages, setReadDisplayPages] = useState<string[] | null>(null);
+  const readTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const readMeasureTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const refreshMailbox = useCallback(async () => {
     if (!profile) {
@@ -136,9 +146,43 @@ export default function MailboxPage() {
   const selectedBinLabel = selectedBinName(selectedBinId, bins);
   const canCreateMoreBins = bins.length < MAX_MAIL_BINS;
 
+  // Kept fresh every render so the ResizeObserver callback below (which can
+  // fire well after the render that set it up) always re-paginates against
+  // the letter actually open, not a stale one from before the user clicked
+  // to the next letter.
+  const selectedLetterPagesRef = useRef<string[]>(selectedLetterPages);
   useEffect(() => {
-    setReadPageIndex((current) => Math.min(current, Math.max(0, selectedLetterPages.length - 1)));
-  }, [selectedLetterPages.length]);
+    selectedLetterPagesRef.current = selectedLetterPages;
+  }, [selectedLetterPages]);
+
+  // A different letter, or the dialog re-opening: drop any previous reflow
+  // so the raw stored pages show first, then get re-validated below.
+  useEffect(() => {
+    setReadDisplayPages(null);
+  }, [selectedLetter?.id, readModalOpen]);
+
+  useEffect(() => {
+    const textarea = readTextareaRef.current;
+    const measure = readMeasureTextareaRef.current;
+    if (!textarea || !measure) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      const nextPages = reflowPages(selectedLetterPagesRef.current, textarea, measure);
+      if (nextPages) {
+        setReadDisplayPages(nextPages);
+      }
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [readModalOpen, selectedLetter?.id]);
+
+  const displayedLetterPages = readDisplayPages ?? selectedLetterPages;
+
+  useEffect(() => {
+    setReadPageIndex((current) => Math.min(current, Math.max(0, displayedLetterPages.length - 1)));
+  }, [displayedLetterPages.length]);
 
   async function handleSelectBin(binId: string) {
     setSelectedBinId(binId);
@@ -717,7 +761,7 @@ export default function MailboxPage() {
               <button type="button" className="secondary-button mailbox-read-close" onClick={() => setReadModalOpen(false)}>
                 Close
               </button>
-              <span className="mobile-page-dialog-meta">Page {readPageIndex + 1} of {selectedLetterPages.length}</span>
+              <span className="mobile-page-dialog-meta">Page {readPageIndex + 1} of {displayedLetterPages.length}</span>
             </div>
 
             <div className="mobile-page-stage">
@@ -742,11 +786,19 @@ export default function MailboxPage() {
                         From {selectedLetter.fromName || "Unknown sender"} &middot; {formatLetterArrival(selectedLetter.deliveredAt ?? selectedLetter.createdAt)}
                       </p>
                       <textarea
-                        value={selectedLetterPages[readPageIndex] || "This letter is empty."}
+                        ref={readTextareaRef}
+                        value={displayedLetterPages[readPageIndex] || "This letter is empty."}
                         readOnly
                         tabIndex={-1}
                         spellCheck={false}
                         className="letter-textarea desk-letter-textarea mailbox-read-textarea"
+                      />
+                      <textarea
+                        ref={readMeasureTextareaRef}
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        readOnly
+                        className="letter-textarea desk-letter-textarea desk-measure-textarea mailbox-read-textarea"
                       />
                     </div>
                     <Image
@@ -777,17 +829,17 @@ export default function MailboxPage() {
                         onChange={(event) => setReadPageIndex(Number(event.target.value))}
                         className="desk-page-select"
                       >
-                        {selectedLetterPages.map((_, index) => (
+                        {displayedLetterPages.map((_, index) => (
                           <option key={`${selectedLetter.id}-read-page-${index + 1}`} value={index}>
-                            {`Page ${index + 1} of ${selectedLetterPages.length}`}
+                            {`Page ${index + 1} of ${displayedLetterPages.length}`}
                           </option>
                         ))}
                       </select>
                       <button
                         type="button"
                         className="desk-page-nav-button"
-                        onClick={() => setReadPageIndex((current) => Math.min(selectedLetterPages.length - 1, current + 1))}
-                        disabled={readPageIndex >= selectedLetterPages.length - 1}
+                        onClick={() => setReadPageIndex((current) => Math.min(displayedLetterPages.length - 1, current + 1))}
+                        disabled={readPageIndex >= displayedLetterPages.length - 1}
                       >
                         {">"}
                       </button>

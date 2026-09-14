@@ -12,14 +12,12 @@ import { SendLetterModal } from "@/components/SendLetterModal";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { buildInviteMessage, buildInviteUrl, sendInviteDraft } from "@/lib/inviteService";
 import { createDraft, burnDraft, listDrafts, saveDraft, sendDraft } from "@/lib/letterService";
+import { getFittedText, splitTextIntoPages } from "@/lib/pagination";
 import { findUserByMailbox } from "@/lib/registryService";
 import { getLastDraftId, setLastDraftId } from "@/lib/storage";
 import type { Letter, SendDraftPayload } from "@/lib/types";
 
 const AUTOSAVE_DELAY_MS = 800;
-// A hard character cap is just a safety bound for the search below, not the
-// actual page-break rule — see getFittedText.
-const MAX_CHARACTERS_PER_PAGE = 20000;
 
 function normalizeDraft(letter: Letter): Letter {
   const pages = Array.isArray(letter.pages) && letter.pages.length > 0 ? letter.pages : [letter.body ?? ""];
@@ -374,96 +372,6 @@ export default function DeskPage() {
       setLastDraftId(nextDraft.id);
     }
     setNotice("Draft removed");
-  }
-
-  // Whether text fits a page is a question about the actual rendered box —
-  // character count alone can't know that, because it has no idea how many
-  // visual lines that text wraps into (variable-width glyphs, word-wrap,
-  // and explicit "\n"s all affect that differently). So we measure it for
-  // real: mirror the text into a same-sized hidden textarea and binary
-  // search for the longest prefix whose rendered height still fits.
-  function getFittedText(
-    text: string,
-    textarea = letterTextareaRef.current,
-    measure = measureTextareaRef.current,
-  ) {
-    if (!textarea || !measure) {
-      return text;
-    }
-
-    measure.style.width = `${textarea.clientWidth}px`;
-    measure.style.height = `${textarea.clientHeight}px`;
-    measure.value = text;
-
-    if (measure.scrollHeight <= measure.clientHeight) {
-      return text;
-    }
-
-    let low = 0;
-    let high = Math.min(text.length, MAX_CHARACTERS_PER_PAGE);
-    let best = "";
-
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      const candidate = text.slice(0, mid);
-      measure.value = candidate;
-
-      if (measure.scrollHeight <= measure.clientHeight) {
-        best = candidate;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-
-    return best;
-  }
-
-  // Splits arbitrarily long text into as many pages as it takes to actually
-  // fit all of it on screen — a paste that's five pages long produces five
-  // pages, not one oversized page that silently scrolls past the paper.
-  function splitTextIntoPages(
-    text: string,
-    textarea = letterTextareaRef.current,
-    measure = measureTextareaRef.current,
-  ): string[] {
-    const result: string[] = [];
-    let remaining = text;
-
-    while (true) {
-      // Trailing pages can end up empty once leading newlines are trimmed
-      // off a split point — don't add a blank page nobody asked for, unless
-      // it's the only page there is.
-      if (remaining.length === 0) {
-        if (result.length === 0) {
-          result.push("");
-        }
-        break;
-      }
-
-      const fitted = getFittedText(remaining, textarea, measure);
-      if (fitted === remaining) {
-        result.push(remaining);
-        break;
-      }
-
-      // If even a single character doesn't fit (e.g. the box is mid-layout
-      // and briefly has no height), force forward progress instead of
-      // spinning forever on the same text.
-      const safeFitted = fitted.length > 0 ? fitted : remaining.slice(0, 1);
-      result.push(safeFitted);
-
-      // Trim a leading blank line off the next page — but only when there's
-      // real content after it. If the overflow is *just* a newline (the
-      // classic "pressing Enter at the bottom of a full page" case), trimming
-      // it away entirely would erase the overflow before it ever became a
-      // page, which is exactly the bug where Enter silently did nothing.
-      const rest = remaining.slice(safeFitted.length);
-      const trimmedRest = rest.replace(/^\n+/, "");
-      remaining = trimmedRest.length > 0 ? trimmedRest : rest;
-    }
-
-    return result;
   }
 
   function handlePageChange(
