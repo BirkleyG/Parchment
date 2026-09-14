@@ -12,7 +12,7 @@ import { SendLetterModal } from "@/components/SendLetterModal";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { buildInviteMessage, buildInviteUrl, sendInviteDraft } from "@/lib/inviteService";
 import { createDraft, burnDraft, listDrafts, saveDraft, sendDraft } from "@/lib/letterService";
-import { getFittedText, splitTextIntoPages } from "@/lib/pagination";
+import { getFittedText, reflowPages, splitTextIntoPages } from "@/lib/pagination";
 import { findUserByMailbox } from "@/lib/registryService";
 import { getLastDraftId, setLastDraftId } from "@/lib/storage";
 import type { Letter, SendDraftPayload } from "@/lib/types";
@@ -85,6 +85,70 @@ export default function DeskPage() {
     () => drafts.find((entry) => entry.id === activeDraftId) ?? null,
     [activeDraftId, drafts],
   );
+
+  // Kept fresh via effect (not written during render — refs can't be
+  // mutated mid-render) so the ResizeObserver callbacks below, which fire
+  // asynchronously well after the render that set them up, always
+  // re-paginate against the latest text rather than a stale snapshot.
+  const activeDraftRef = useRef<Letter | null>(null);
+  useEffect(() => {
+    activeDraftRef.current = activeDraft;
+  }, [activeDraft]);
+
+  // A draft's page split is only ever valid for the box it was fitted
+  // against. The desktop canvas resizes continuously with the browser
+  // window (responsive font-size, flexible height) and the mobile editor
+  // is a fixed different-sized canvas from the desktop one — so opening a
+  // draft, resizing the window, or toggling Focus Mode can all leave pages
+  // that no longer fit their own textarea, silently clipped by
+  // `overflow: hidden` with no way to scroll or page to the rest.
+  // Re-derive the whole split from whichever box is actually on screen
+  // whenever it settles or changes; reflowPages() only reports a change
+  // (and only then do we persist) when the result actually differs, so
+  // this is a no-op once a letter's pages already match its current box.
+  useEffect(() => {
+    const textarea = letterTextareaRef.current;
+    const measure = measureTextareaRef.current;
+    if (!textarea || !measure) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      const draft = activeDraftRef.current;
+      if (!draft) {
+        return;
+      }
+      const currentPages = draft.pages ?? [draft.body ?? ""];
+      const nextPages = reflowPages(currentPages, textarea, measure);
+      if (nextPages) {
+        patchDraftPages(nextPages);
+      }
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [activeDraftId, focusMode]);
+
+  useEffect(() => {
+    const textarea = mobileLetterTextareaRef.current;
+    const measure = mobileMeasureTextareaRef.current;
+    if (!textarea || !measure) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      const draft = activeDraftRef.current;
+      if (!draft) {
+        return;
+      }
+      const currentPages = draft.pages ?? [draft.body ?? ""];
+      const nextPages = reflowPages(currentPages, textarea, measure);
+      if (nextPages) {
+        patchDraftPages(nextPages);
+      }
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [activeDraftId, mobileEditorOpen]);
 
   const refreshDrafts = useCallback(async () => {
     if (!profile) {
